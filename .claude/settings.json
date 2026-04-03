@@ -95,7 +95,10 @@
       "Bash(kill %1)",
       "Bash(git reset:*)",
       "Bash(git add:*)",
-      "Bash(git commit -m ':*)"
+      "Bash(git commit -m ':*)",
+      "Bash(dns-sd -B _matter._tcp local.)",
+      "Bash(dns-sd -B _matterc._udp local.)",
+      "Bash(dns-sd -L \"678CEFB1F1EC6669\" _matterc._udp local.)"
     ],
     "additionalDirectories": [
       "/Users/nevilledipale/.matter/matter-onvif-bridge",

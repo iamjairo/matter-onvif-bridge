@@ -6,8 +6,9 @@ import { createChildLogger } from "../logger.js";
 import { Config } from "../config.js";
 import type { CameraDevice } from "../registry/camera.js";
 import type { CameraRegistry } from "../registry/camera-registry.js";
-import { CameraAvStreamManagementServer } from "./clusters/camera-av-stream-management/server.js";
-import { WebRtcTransportProviderServer } from "./clusters/webrtc-transport-provider/server.js";
+// Camera cluster servers are lazy-imported in addCameraEndpoint() to avoid
+// their module-level side effects (Object.defineProperty, prototype mutation)
+// from corrupting the PASE commissioning verifier during ServerNode init.
 import type { Go2RtcApi } from "../media/go2rtc-api.js";
 
 const log = createChildLogger("matter-bridge");
@@ -27,6 +28,11 @@ export class MatterBridge {
 
     this.node = await ServerNode.create({
       id: "matter-onvif-bridge",
+
+      productDescription: {
+        name: "ONVIF Camera Bridge",
+        deviceType: AggregatorEndpoint.deviceType,
+      },
 
       basicInformation: {
         vendorName: "matter-onvif-bridge",
@@ -52,17 +58,18 @@ export class MatterBridge {
     this.aggregator = new Endpoint(AggregatorEndpoint, { id: "aggregator" });
     await this.node.add(this.aggregator);
 
-    // Wire up to camera registry events
+    await this.node.start();
+
+    // Wire up camera endpoints AFTER the node is online and commissioned.
+    // Adding custom camera clusters before start() breaks the PASE commissioning
+    // verifier in matter.js 0.16.x due to cluster init side effects.
     this.registry.on("added", (camera) => this.addCameraEndpoint(camera));
     this.registry.on("removed", (camera) => this.removeCameraEndpoint(camera));
     this.registry.on("updated", (camera) => this.updateCameraEndpoint(camera));
 
-    // Add any cameras already discovered
     for (const camera of this.registry.getAllCameras()) {
       await this.addCameraEndpoint(camera);
     }
-
-    await this.node.start();
 
     const manualCode = ManualPairingCodeCodec.encode({
       discriminator: Config.matter.discriminator,
@@ -104,7 +111,10 @@ export class MatterBridge {
     if (this.cameraEndpoints.has(camera.info.id)) return;
 
     try {
-      // Compose the bridged endpoint with camera behaviors
+      // Lazy import to avoid cluster init side effects breaking PASE commissioning
+      const { CameraAvStreamManagementServer } = await import("./clusters/camera-av-stream-management/server.js");
+      const { WebRtcTransportProviderServer } = await import("./clusters/webrtc-transport-provider/server.js");
+
       const CameraEndpoint = BridgedNodeEndpoint.with(
         CameraAvStreamManagementServer,
         WebRtcTransportProviderServer,
