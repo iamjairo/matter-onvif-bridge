@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env
+.matter-storage/
+bin/
+*.tgz
+go2rtc.yaml
+package-lock.json
