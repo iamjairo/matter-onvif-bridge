@@ -5,7 +5,7 @@ set -euo pipefail
 # Installs the matter-onvif-bridge as a systemd service
 
 INSTALL_DIR="${1:-/opt/matter-onvif-bridge}"
-SERVICE_USER="${2:-pi}"
+SERVICE_USER="${2:-${SUDO_USER:-$(whoami)}}"
 SERVICE_NAME="matter-onvif-bridge"
 
 echo "=== Matter-ONVIF Bridge Pi Setup ==="
