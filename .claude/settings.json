@@ -94,7 +94,8 @@
       "Bash(grep -i -E \"qr|pairing|commission|manual|MT:\" /Users/nevilledipale/.matter/matter-onvif-bridge/*)",
       "Bash(kill %1)",
       "Bash(git reset:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit -m ':*)"
     ],
     "additionalDirectories": [
       "/Users/nevilledipale/.matter/matter-onvif-bridge",
