@@ -7,6 +7,8 @@ export const Config = {
     username: process.env.ONVIF_USERNAME || "admin",
     password: process.env.ONVIF_PASSWORD || "admin",
     discoveryInterval: parseInt(process.env.ONVIF_DISCOVERY_INTERVAL || "60000", 10),
+    /** "static" = use only ONVIF_STATIC_CAMERAS, no WS-Discovery. "auto" = WS-Discovery + static list with periodic rescanning. */
+    discoveryMode: (process.env.ONVIF_DISCOVERY_MODE || "auto") as "static" | "auto",
     /** Comma-separated list of static cameras: "host:port,host:port,..." */
     staticCameras: process.env.ONVIF_STATIC_CAMERAS || "",
   },

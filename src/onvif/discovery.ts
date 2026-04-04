@@ -10,6 +10,7 @@ const log = createChildLogger("onvif-discovery");
 export interface DiscoveryEvents {
   cameraFound: (camera: OnvifCameraInfo) => void;
   cameraLost: (cameraId: string) => void;
+  cameraUnreachable: (cameraId: string) => void;
   error: (error: Error) => void;
 }
 
@@ -18,16 +19,23 @@ interface DeviceAddress {
   port: number;
 }
 
+/** Number of consecutive missed scans before a camera is considered lost */
+const MISS_THRESHOLD = 3;
+
 export class OnvifDiscovery {
   private discoveredCameras = new Map<string, OnvifCameraInfo>();
+  private missedScans = new Map<string, number>();
   private scanTimer: ReturnType<typeof setInterval> | null = null;
   private listeners: Partial<{ [K in keyof DiscoveryEvents]: DiscoveryEvents[K][] }> = {};
+  private readonly mode: "static" | "auto";
 
   constructor(
     private readonly username: string = Config.onvif.username,
     private readonly password: string = Config.onvif.password,
     private readonly scanInterval: number = Config.onvif.discoveryInterval,
-  ) {}
+  ) {
+    this.mode = Config.onvif.discoveryMode;
+  }
 
   on<K extends keyof DiscoveryEvents>(event: K, listener: DiscoveryEvents[K]): void {
     if (!this.listeners[event]) {
@@ -46,9 +54,14 @@ export class OnvifDiscovery {
   }
 
   async start(): Promise<void> {
-    log.info({ interval: this.scanInterval }, "Starting ONVIF discovery");
-    await this.scan();
-    this.scanTimer = setInterval(() => this.scan(), this.scanInterval);
+    if (this.mode === "static") {
+      log.info("Starting ONVIF in static mode (no WS-Discovery, no periodic rescanning)");
+      await this.scanStaticOnly();
+    } else {
+      log.info({ interval: this.scanInterval }, "Starting ONVIF discovery");
+      await this.scan();
+      this.scanTimer = setInterval(() => this.scan(), this.scanInterval);
+    }
   }
 
   stop(): void {
@@ -61,6 +74,30 @@ export class OnvifDiscovery {
 
   getDiscoveredCameras(): OnvifCameraInfo[] {
     return Array.from(this.discoveredCameras.values());
+  }
+
+  /** Static-only mode: connect once to the static camera list, no periodic rescanning */
+  private async scanStaticOnly(): Promise<void> {
+    const devices = this.parseStaticCameras();
+    if (devices.length === 0) {
+      log.warn("Static mode enabled but ONVIF_STATIC_CAMERAS is empty — no cameras will be added");
+      return;
+    }
+
+    log.info({ total: devices.length, devices: devices.map((d) => `${d.hostname}:${d.port}`) }, "Connecting to static cameras");
+
+    for (const device of devices) {
+      try {
+        const camera = await this.connectToDevice(device);
+        this.discoveredCameras.set(camera.id, camera);
+        this.emit("cameraFound", camera);
+      } catch (err) {
+        const msg = (err as Error)?.message || String(err);
+        log.error({ host: device.hostname, port: device.port, err: msg }, "Failed to connect to static camera");
+      }
+    }
+
+    log.info({ connected: this.discoveredCameras.size, total: devices.length }, "Static camera scan complete");
   }
 
   private async scan(): Promise<void> {
@@ -87,6 +124,7 @@ export class OnvifDiscovery {
         try {
           const camera = await this.connectToDevice(device);
           foundIds.add(camera.id);
+          this.missedScans.delete(camera.id);
           if (!this.discoveredCameras.has(camera.id)) {
             this.discoveredCameras.set(camera.id, camera);
             this.emit("cameraFound", camera);
@@ -105,12 +143,21 @@ export class OnvifDiscovery {
         }
       }
 
-      // Detect cameras that disappeared
+      // Detect cameras that disappeared — use grace period before removal
       for (const [id] of this.discoveredCameras) {
         if (!foundIds.has(id)) {
-          this.discoveredCameras.delete(id);
-          this.emit("cameraLost", id);
-          log.info({ cameraId: id }, "Camera went offline");
+          const misses = (this.missedScans.get(id) || 0) + 1;
+          this.missedScans.set(id, misses);
+
+          if (misses >= MISS_THRESHOLD) {
+            this.discoveredCameras.delete(id);
+            this.missedScans.delete(id);
+            this.emit("cameraLost", id);
+            log.info({ cameraId: id, missedScans: misses }, "Camera removed after repeated missed scans");
+          } else {
+            this.emit("cameraUnreachable", id);
+            log.debug({ cameraId: id, missedScans: misses, threshold: MISS_THRESHOLD }, "Camera missed scan, marking unreachable");
+          }
         }
       }
 

@@ -44,6 +44,9 @@ async function main() {
   discovery.on("cameraLost", (cameraId) => {
     registry.removeCamera(cameraId);
   });
+  discovery.on("cameraUnreachable", (cameraId) => {
+    registry.markUnreachable(cameraId);
+  });
   discovery.on("error", (err) => {
     log.error({ err }, "ONVIF discovery error");
   });
