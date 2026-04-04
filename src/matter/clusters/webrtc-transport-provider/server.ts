@@ -122,16 +122,15 @@ class WebRtcTransportProviderServerBase extends WebRtcTransportProviderBehavior 
 
 // Fix featureMap (same issue as CameraAvStreamManagement)
 const OrigWrtpState = WebRtcTransportProviderServerBase.State;
-const FixedWrtpState = class extends OrigWrtpState {
-  constructor() {
-    super();
-    (this as any).featureMap = {};
-  }
+const FixedWrtpState = function (this: any) {
+  OrigWrtpState.call(this);
+  this.featureMap = {};
 };
+FixedWrtpState.prototype = Object.create(OrigWrtpState.prototype);
 Object.defineProperty(WebRtcTransportProviderServerBase, "State", { value: FixedWrtpState });
 
 // Map command handlers to numeric keys for ValidatedElements
-const commands = WebRtcTransportProvider.commands;
+const commands = WebRtcTransportProvider.commands as Record<string, any> | undefined;
 const proto = WebRtcTransportProviderServerBase.prototype as any;
 const methodMap: Record<string, string> = {
   ProvideOffer: "provideOffer",
@@ -140,8 +139,8 @@ const methodMap: Record<string, string> = {
   ProvideIceCandidates: "provideIceCandidates",
   EndSession: "endSession",
 };
-for (const key of Object.keys(commands)) {
-  const cmd = commands[key];
+for (const key of Object.keys(commands ?? {})) {
+  const cmd = commands![key];
   if (!cmd) continue;
   const method = methodMap[cmd.name];
   if (method && proto[method]) {

@@ -116,18 +116,17 @@ class CameraAvStreamManagementServerBase extends CameraAvStreamManagementBehavio
 
 // Fix featureMap: matter.js BitmapManager expects an object, not a number.
 const OrigState = CameraAvStreamManagementServerBase.State;
-const FixedState = class extends OrigState {
-  constructor() {
-    super();
-    (this as any).featureMap = {};
-  }
+const FixedState = function (this: any) {
+  OrigState.call(this);
+  this.featureMap = {};
 };
+FixedState.prototype = Object.create(OrigState.prototype);
 Object.defineProperty(CameraAvStreamManagementServerBase, "State", { value: FixedState });
 
 // Map command handlers to the numeric keys that ValidatedElements expects.
 // ClusterType(model) produces commands keyed by index ("0","1",...), not camelCase names.
 // Response commands (odd indices for request/response pairs) are mapped as no-ops.
-const commands = CameraAvStreamManagement.commands;
+const commands = CameraAvStreamManagement.commands as Record<string, any> | undefined;
 const proto = CameraAvStreamManagementServerBase.prototype as any;
 const methodMap: Record<string, string> = {
   AudioStreamAllocate: "audioStreamAllocate",
@@ -140,8 +139,8 @@ const methodMap: Record<string, string> = {
   SetStreamPriorities: "setStreamPriorities",
   CaptureSnapshot: "captureSnapshot",
 };
-for (const key of Object.keys(commands)) {
-  const cmd = commands[key];
+for (const key of Object.keys(commands ?? {})) {
+  const cmd = commands![key];
   if (!cmd) continue;
   const method = methodMap[cmd.name];
   if (method && proto[method]) {
