@@ -13,7 +13,7 @@ matter-camera.workspace = true
 onvif-client.workspace = true
 media.workspace = true
 
-rs-matter = { git = "https://github.com/project-chip/rs-matter", package = "rs-matter", features = ["async-io"] }
+rs-matter = { git = "https://github.com/project-chip/rs-matter", package = "rs-matter", features = ["async-io", "zeroconf"] }
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
@@ -28,7 +28,6 @@ embassy-time-queue-utils = { version = "0.3", features = ["generic-queue-64"] }
 async-io = "2"
 futures-lite = "2"
 rand = { version = "0.8", features = ["std", "std_rng"] }
-nix = { version = "0.27", features = ["net"] }
 socket2 = "0.5"
 log = "0.4"
 env_logger = "0.11"

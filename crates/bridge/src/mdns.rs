@@ -1,98 +1,19 @@
-//! mDNS helper — uses rs-matter's built-in mDNS responder.
-//! Adapted from the rs-matter examples.
-
-use std::net::UdpSocket;
+//! mDNS helper — uses the system mDNS service (avahi on Linux, Bonjour on macOS)
+//! via the `zeroconf` crate. This avoids port 5353 conflicts with avahi-daemon
+//! and provides proper mDNS response handling for remote controllers.
 
 use rs_matter::dm::ChangeNotify;
 use rs_matter::error::Error;
-use rs_matter::transport::network::mdns::builtin::{BuiltinMdnsResponder, Host};
-use rs_matter::transport::network::mdns::{
-    MDNS_IPV4_BROADCAST_ADDR, MDNS_IPV6_BROADCAST_ADDR, MDNS_SOCKET_DEFAULT_BIND_ADDR,
-};
-use rs_matter::transport::network::{Ipv4Addr, Ipv6Addr};
+use rs_matter::transport::network::mdns::zeroconf::ZeroconfMdnsResponder;
 use rs_matter::{crypto::Crypto, Matter};
-use socket2::{Domain, Protocol, Socket, Type};
 
 pub async fn run_mdns<C: Crypto>(
     matter: &Matter<'_>,
     crypto: C,
     notify: &dyn ChangeNotify,
 ) -> Result<(), Error> {
-    let (ipv4_addr, ipv6_addr, interface) = initialize_network()?;
-
-    let mut socket = Socket::new(Domain::IPV6, Type::DGRAM, Some(Protocol::UDP))?;
-    socket.set_reuse_address(true)?;
-    socket.set_only_v6(false)?;
-    socket.bind(&MDNS_SOCKET_DEFAULT_BIND_ADDR.into())?;
-    let socket = async_io::Async::<UdpSocket>::new_nonblocking(socket.into())?;
-
-    // Join IPv6 multicast if we have a real IPv6 address
-    if ipv6_addr != Ipv6Addr::from([0; 16]) {
-        socket
-            .get_ref()
-            .join_multicast_v6(&MDNS_IPV6_BROADCAST_ADDR, interface)?;
-    } else {
-        log::warn!("No IPv6 address on network interface — mDNS will be IPv4 only");
-    }
-    socket
-        .get_ref()
-        .join_multicast_v4(&MDNS_IPV4_BROADCAST_ADDR, &ipv4_addr)?;
-
-    BuiltinMdnsResponder::new(matter, crypto, notify)
-        .run(
-            &socket,
-            &socket,
-            &Host {
-                id: 0,
-                hostname: "matter-onvif-bridge",
-                ip: ipv4_addr,
-                ipv6: ipv6_addr,
-            },
-            Some(ipv4_addr),
-            Some(interface),
-        )
+    log::info!("Starting mDNS via system service (zeroconf/avahi)");
+    ZeroconfMdnsResponder::new(matter)
+        .run(crypto, notify)
         .await
-}
-
-fn initialize_network() -> Result<(Ipv4Addr, Ipv6Addr, u32), Error> {
-    use nix::net::if_::InterfaceFlags;
-    use rs_matter::error::ErrorCode;
-
-    let interfaces = || {
-        nix::ifaddrs::getifaddrs().unwrap().filter(|ia| {
-            ia.flags
-                .contains(InterfaceFlags::IFF_UP | InterfaceFlags::IFF_BROADCAST)
-                && !ia
-                    .flags
-                    .intersects(InterfaceFlags::IFF_LOOPBACK | InterfaceFlags::IFF_POINTOPOINT)
-        })
-    };
-
-    // Find first interface with an IPv4 address
-    let (iname, ip) = interfaces()
-        .find_map(|ia| {
-            ia.address
-                .and_then(|addr| addr.as_sockaddr_in().map(|addr| addr.ip().into()))
-                .map(|ip: std::net::Ipv4Addr| (ia.interface_name, ip))
-        })
-        .ok_or_else(|| {
-            log::error!("Cannot find network interface with IPv4 for mDNS broadcasting");
-            ErrorCode::StdIoError
-        })?;
-
-    // Try to find an IPv6 address on the same interface; use unspecified as fallback
-    let ipv6 = interfaces()
-        .filter(|ia| ia.interface_name == iname)
-        .find_map(|ia| {
-            ia.address
-                .and_then(|addr| {
-                    addr.as_sockaddr_in6()
-                        .map(nix::sys::socket::SockaddrIn6::ip)
-                })
-        })
-        .unwrap_or(std::net::Ipv6Addr::UNSPECIFIED);
-
-    log::info!("Will use network interface {iname} with {ip}/{ipv6} for mDNS");
-
-    Ok((ip.octets().into(), ipv6.octets().into(), 0_u32))
 }

@@ -2,5 +2,5 @@
 pre-build = [
     "dpkg --add-architecture arm64",
     "apt-get update",
-    "apt-get install -y libdbus-1-dev:arm64 pkg-config"
+    "apt-get install -y libdbus-1-dev:arm64 libavahi-client-dev:arm64 pkg-config"
 ]
