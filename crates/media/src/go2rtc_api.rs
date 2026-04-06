@@ -25,15 +25,20 @@ impl Go2RtcApi {
     }
 
     /// Register an RTSP stream source in go2rtc.
+    /// go2rtc 1.9+ expects the source URL as a `src` query parameter.
     pub async fn add_stream(&self, name: &str, rtsp_url: &str) -> Result<(), String> {
-        let url = format!("{}/api/streams?name={}", self.base_url, urlencoding::encode(name));
+        let url = format!(
+            "{}/api/streams?name={}&src={}",
+            self.base_url,
+            urlencoding::encode(name),
+            urlencoding::encode(rtsp_url),
+        );
 
         debug!(name, rtsp_url, "Registering stream in go2rtc");
 
         let resp = self
             .client
             .put(&url)
-            .body(rtsp_url.to_string())
             .send()
             .await
             .map_err(|e| format!("PUT /api/streams failed: {e}"))?;
