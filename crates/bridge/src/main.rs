@@ -190,6 +190,8 @@ fn main() -> Result<(), Error> {
     let mut psm: Psm<4096> = Psm::new();
     let path = std::path::PathBuf::from(&cfg.matter.storage_path);
 
+    psm.load(&path, &matter, NO_NETWORKS, Some(&events))?;
+
     if !matter.is_commissioned() {
         log::info!("Device not commissioned. Displaying QR code...");
         matter.print_standard_qr_text(DiscoveryCapabilities::IP)?;
