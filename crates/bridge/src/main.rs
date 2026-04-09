@@ -3,6 +3,7 @@
 mod config;
 mod mdns;
 mod onvif_bridge;
+mod slot_persistence;
 
 use core::pin::pin;
 use std::net::UdpSocket;
@@ -57,15 +58,22 @@ const DEV_TYPE_CAMERA: DeviceType = DeviceType {
 };
 
 /// Maximum number of camera endpoints we pre-allocate.
-const MAX_CAMERAS: usize = 16;
+///
+/// Google Home walks every endpoint in the descriptor and shows even
+/// `reachable=false` ones as "unavailable" devices, so the slot pool needs
+/// to be sized close to the actual number of cameras. 8 leaves a small
+/// headroom over the 6 cameras the user currently runs; bumping requires
+/// a recompile because the static `Node` array and the handler chain are
+/// both type-level constructs.
+pub const MAX_CAMERAS: usize = 8;
 
 /// How many of the pre-allocated camera slots include the OccupancySensing
 /// cluster (for cameras whose ONVIF device advertises a MotionAlarm topic).
 /// The remaining `MAX_CAMERAS - WITH_OCCUPANCY_CAMERAS` slots are camera-only.
-pub const WITH_OCCUPANCY_CAMERAS: usize = 12;
+pub const WITH_OCCUPANCY_CAMERAS: usize = 7;
 
-/// Endpoint IDs: 0 = root, 1 = aggregator, 2..13 = camera+occupancy slots,
-/// 14..17 = camera-only slots.
+/// Endpoint IDs: 0 = root, 1 = aggregator, 2..8 = camera+occupancy slots,
+/// 9 = camera-only slot.
 const AGGREGATOR_EP: u16 = 1;
 #[allow(dead_code)]
 const CAMERA_EP_START: u16 = 2;
@@ -309,8 +317,8 @@ macro_rules! camera_endpoints {
 const NODE: Node<'static> = Node {
     id: 0,
     endpoints: camera_endpoints![
-        with_occupancy: [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
-        plain: [14, 15, 16, 17],
+        with_occupancy: [2, 3, 4, 5, 6, 7, 8],
+        plain: [9],
     ],
 };
 
@@ -496,6 +504,7 @@ fn dm_handler<'a>(
         };
     }
 
+    // Endpoints 2..=8: camera + OccupancySensing (7 slots).
     let chain = chain_camera_ep_with_occupancy!(chain, rand, av_handlers, webrtc_handlers, occupancy_handlers, camera_states, 2, 0);
     let chain = chain_camera_ep_with_occupancy!(chain, rand, av_handlers, webrtc_handlers, occupancy_handlers, camera_states, 3, 1);
     let chain = chain_camera_ep_with_occupancy!(chain, rand, av_handlers, webrtc_handlers, occupancy_handlers, camera_states, 4, 2);
@@ -503,16 +512,8 @@ fn dm_handler<'a>(
     let chain = chain_camera_ep_with_occupancy!(chain, rand, av_handlers, webrtc_handlers, occupancy_handlers, camera_states, 6, 4);
     let chain = chain_camera_ep_with_occupancy!(chain, rand, av_handlers, webrtc_handlers, occupancy_handlers, camera_states, 7, 5);
     let chain = chain_camera_ep_with_occupancy!(chain, rand, av_handlers, webrtc_handlers, occupancy_handlers, camera_states, 8, 6);
-    let chain = chain_camera_ep_with_occupancy!(chain, rand, av_handlers, webrtc_handlers, occupancy_handlers, camera_states, 9, 7);
-    let chain = chain_camera_ep_with_occupancy!(chain, rand, av_handlers, webrtc_handlers, occupancy_handlers, camera_states, 10, 8);
-    let chain = chain_camera_ep_with_occupancy!(chain, rand, av_handlers, webrtc_handlers, occupancy_handlers, camera_states, 11, 9);
-    let chain = chain_camera_ep_with_occupancy!(chain, rand, av_handlers, webrtc_handlers, occupancy_handlers, camera_states, 12, 10);
-    let chain = chain_camera_ep_with_occupancy!(chain, rand, av_handlers, webrtc_handlers, occupancy_handlers, camera_states, 13, 11);
-    // Endpoints 14..=17: camera-only (4 slots).
-    let chain = chain_camera_base!(chain, rand, av_handlers, webrtc_handlers, camera_states, 14, 12);
-    let chain = chain_camera_base!(chain, rand, av_handlers, webrtc_handlers, camera_states, 15, 13);
-    let chain = chain_camera_base!(chain, rand, av_handlers, webrtc_handlers, camera_states, 16, 14);
-    let chain = chain_camera_base!(chain, rand, av_handlers, webrtc_handlers, camera_states, 17, 15);
+    // Endpoint 9: camera-only (1 slot).
+    let chain = chain_camera_base!(chain, rand, av_handlers, webrtc_handlers, camera_states, 9, 7);
 
     (
         NODE,

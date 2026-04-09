@@ -23,9 +23,8 @@ use onvif_client::types::CameraDevice;
 use tokio::sync::mpsc;
 
 use crate::config::{self, Config};
-use crate::WITH_OCCUPANCY_CAMERAS;
-
-const MAX_CAMERAS: usize = 16;
+use crate::slot_persistence::SlotMap;
+use crate::{MAX_CAMERAS, WITH_OCCUPANCY_CAMERAS};
 
 /// Shared state accessible from the Matter handler thread for WebRTC negotiation.
 #[derive(Clone)]
@@ -87,6 +86,7 @@ pub fn start_onvif_bridge(
     let onvif_username = cfg.onvif.username.clone();
     let onvif_password = cfg.onvif.password.clone();
     let camera_names = cfg.onvif.camera_names.clone();
+    let storage_dir = std::path::PathBuf::from(&cfg.matter.storage_path);
 
     std::thread::Builder::new()
         .name("onvif-media-bridge".into())
@@ -131,9 +131,14 @@ pub fn start_onvif_bridge(
 
                 // 4. Process discovery events → registry → state population
                 let mut registry_rx = registry_clone.subscribe();
-                // Two-pool slot allocator: occupancy slots first, then plain.
-                let mut next_occ_slot: usize = 0;
-                let mut next_plain_slot: usize = WITH_OCCUPANCY_CAMERAS;
+                // Persistent slot allocator: keyed by camera id (ONVIF
+                // serial). Stable across restarts so Google Home room
+                // assignments don't drift when discovery order changes.
+                let mut slot_map = SlotMap::load(
+                    &storage_dir,
+                    MAX_CAMERAS,
+                    WITH_OCCUPANCY_CAMERAS,
+                );
                 // Tracks the spawned motion pump per slot so we can abort on remove.
                 let mut motion_tasks: HashMap<usize, tokio::task::JoinHandle<()>> = HashMap::new();
 
@@ -153,19 +158,8 @@ pub fn start_onvif_bridge(
                         Ok(event) = registry_rx.recv() => {
                             match event {
                                 RegistryEvent::Added(camera) => {
-                                    let slot = if camera.supports_motion
-                                        && next_occ_slot < WITH_OCCUPANCY_CAMERAS
-                                    {
-                                        let s = next_occ_slot;
-                                        next_occ_slot += 1;
-                                        Some(s)
-                                    } else if next_plain_slot < MAX_CAMERAS {
-                                        let s = next_plain_slot;
-                                        next_plain_slot += 1;
-                                        Some(s)
-                                    } else {
-                                        None
-                                    };
+                                    let slot = slot_map
+                                        .assign(&camera.id, camera.supports_motion);
 
                                     if let Some(slot) = slot {
                                         // Update slot maps

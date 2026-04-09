@@ -19,6 +19,7 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 dotenvy.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 anyhow = "1"
 
 # rs-matter runtime deps (same as examples)
@@ -32,3 +33,6 @@ socket2 = "0.5"
 log = "0.4"
 env_logger = "0.11"
 hostname = "0.4"
+
+[dev-dependencies]
+tempfile = "3"
