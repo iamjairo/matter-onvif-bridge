@@ -207,6 +207,14 @@ pub struct CameraEndpointState {
     pub night_vision_illum: TriStateAuto,
     pub viewport: VideoResolution,
 
+    /// Whether this camera advertises ONVIF MotionAlarm events. When false the
+    /// OccupancySensing cluster is omitted from the endpoint's static cluster
+    /// list (slot is allocated from the camera-only pool).
+    pub motion_supported: bool,
+
+    /// Latest motion-alarm state pumped in from ONVIF PullPoint events.
+    pub motion_detected: bool,
+
     // Stream ID counters
     pub next_video_stream_id: u16,
     pub next_audio_stream_id: u16,
@@ -256,6 +264,8 @@ impl Default for CameraEndpointState {
                 width: 1920,
                 height: 1080,
             },
+            motion_supported: false,
+            motion_detected: false,
             next_video_stream_id: 1,
             next_audio_stream_id: 1,
             next_snapshot_stream_id: 1,

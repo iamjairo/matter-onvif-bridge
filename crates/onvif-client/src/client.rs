@@ -46,6 +46,25 @@ pub async fn connect_camera(
         .as_deref()
         .ok_or("No media service URL in capabilities")?;
 
+    let events_url = caps.events.url.clone();
+
+    // Probe motion-event support: query the Events service for its topic set
+    // and look for any topic ending in `MotionAlarm`. We don't fail the connect
+    // if this probe errors — many cameras still work without events.
+    let supports_motion = match events_url.as_deref() {
+        Some(url) => match client.get_event_properties(url).await {
+            Ok(props) => props
+                .topics
+                .iter()
+                .any(|t| t.to_ascii_lowercase().ends_with("motionalarm")),
+            Err(e) => {
+                debug!("GetEventProperties failed: {e}");
+                false
+            }
+        },
+        None => false,
+    };
+
     // Device information
     let info = client
         .get_device_info()
@@ -164,5 +183,7 @@ pub async fn connect_camera(
         device_info,
         profiles,
         stream_uri,
+        events_url,
+        supports_motion,
     })
 }

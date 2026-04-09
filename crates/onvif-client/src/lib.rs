@@ -7,5 +7,6 @@
 
 pub mod client;
 pub mod discovery;
+pub mod motion;
 pub mod registry;
 pub mod types;

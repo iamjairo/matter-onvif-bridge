@@ -16,11 +16,14 @@ use matter_camera::types::{CameraEndpointState, VideoResolution, VideoSensorPara
 use media::go2rtc_api::Go2RtcApi;
 use media::go2rtc_manager::{Go2RtcManager, Go2RtcMode};
 use onvif_client::discovery::{DiscoveryConfig, DiscoveryEvent, DiscoveryMode};
+use matter_camera::cluster_occupancy::OccupancyDataver;
+use onvif_client::motion::{spawn_motion_pump, MotionPumpConfig};
 use onvif_client::registry::{CameraRegistry, RegistryEvent};
 use onvif_client::types::CameraDevice;
 use tokio::sync::mpsc;
 
 use crate::config::{self, Config};
+use crate::WITH_OCCUPANCY_CAMERAS;
 
 const MAX_CAMERAS: usize = 16;
 
@@ -42,6 +45,7 @@ pub struct MediaBridge {
 pub fn start_onvif_bridge(
     cfg: &Config,
     camera_states: &[Arc<RwLock<CameraEndpointState>>],
+    occupancy_datavers: &[OccupancyDataver],
     registry: CameraRegistry,
 ) -> MediaBridge {
     let go2rtc_api = Go2RtcApi::new(&cfg.go2rtc.host, cfg.go2rtc.api_port);
@@ -77,6 +81,7 @@ pub fn start_onvif_bridge(
     );
 
     let states = camera_states.to_vec();
+    let occupancy_datavers = occupancy_datavers.to_vec();
     let registry_clone = registry.clone();
     let bridge_clone = media_bridge.clone();
     let onvif_username = cfg.onvif.username.clone();
@@ -104,12 +109,14 @@ pub fn start_onvif_bridge(
                 // 2. Spawn stream manager (registers RTSP streams in go2rtc)
                 let api_for_streams = go2rtc_api.clone();
                 let registry_for_streams = registry_clone.clone();
+                let stream_user = onvif_username.clone();
+                let stream_pass = onvif_password.clone();
                 tokio::spawn(async move {
                     media::stream_manager::run_stream_manager(
                         &registry_for_streams,
                         api_for_streams,
-                        &onvif_username,
-                        &onvif_password,
+                        &stream_user,
+                        &stream_pass,
                     )
                     .await;
                 });
@@ -123,7 +130,11 @@ pub fn start_onvif_bridge(
 
                 // 4. Process discovery events → registry → state population
                 let mut registry_rx = registry_clone.subscribe();
-                let mut next_slot: usize = 0;
+                // Two-pool slot allocator: occupancy slots first, then plain.
+                let mut next_occ_slot: usize = 0;
+                let mut next_plain_slot: usize = WITH_OCCUPANCY_CAMERAS;
+                // Tracks the spawned motion pump per slot so we can abort on remove.
+                let mut motion_tasks: HashMap<usize, tokio::task::JoinHandle<()>> = HashMap::new();
 
                 loop {
                     tokio::select! {
@@ -141,10 +152,21 @@ pub fn start_onvif_bridge(
                         Ok(event) = registry_rx.recv() => {
                             match event {
                                 RegistryEvent::Added(camera) => {
-                                    if next_slot < MAX_CAMERAS {
-                                        let slot = next_slot;
-                                        next_slot += 1;
+                                    let slot = if camera.supports_motion
+                                        && next_occ_slot < WITH_OCCUPANCY_CAMERAS
+                                    {
+                                        let s = next_occ_slot;
+                                        next_occ_slot += 1;
+                                        Some(s)
+                                    } else if next_plain_slot < MAX_CAMERAS {
+                                        let s = next_plain_slot;
+                                        next_plain_slot += 1;
+                                        Some(s)
+                                    } else {
+                                        None
+                                    };
 
+                                    if let Some(slot) = slot {
                                         // Update slot maps
                                         let stream_name = sanitize_stream_name(&camera.id);
                                         if let Ok(mut map) = bridge_clone.slot_map.write() {
@@ -156,11 +178,48 @@ pub fn start_onvif_bridge(
 
                                         populate_camera_state(&states[slot], &camera);
                                         log::info!(
-                                            "Camera '{}' ({}) → endpoint {}, stream registered",
+                                            "Camera '{}' ({}) → endpoint {} (motion={}), stream registered",
                                             camera.device_info.model,
                                             camera.id,
                                             slot + 2,
+                                            camera.supports_motion,
                                         );
+
+                                        // If this slot supports occupancy and the camera advertised
+                                        // a MotionAlarm topic, spawn the PullPoint pump now.
+                                        if camera.supports_motion
+                                            && slot < WITH_OCCUPANCY_CAMERAS
+                                        {
+                                            if let Some(events_url) = camera.events_url.clone() {
+                                                let pump_cfg = MotionPumpConfig {
+                                                    host: camera.host.clone(),
+                                                    port: camera.port,
+                                                    username: onvif_username.clone(),
+                                                    password: onvif_password.clone(),
+                                                    events_url,
+                                                    label: format!(
+                                                        "{} {}",
+                                                        camera.device_info.manufacturer,
+                                                        camera.device_info.model
+                                                    ),
+                                                };
+                                                let state_for_pump = Arc::clone(&states[slot]);
+                                                let dataver_for_pump =
+                                                    occupancy_datavers[slot].clone();
+                                                let handle = spawn_motion_pump(
+                                                    pump_cfg,
+                                                    move |motion| {
+                                                        if let Ok(mut s) = state_for_pump.write() {
+                                                            if s.motion_detected != motion {
+                                                                s.motion_detected = motion;
+                                                                dataver_for_pump.bump();
+                                                            }
+                                                        }
+                                                    },
+                                                );
+                                                motion_tasks.insert(slot, handle);
+                                            }
+                                        }
                                     } else {
                                         log::warn!(
                                             "No endpoint slots left for camera {} (max {})",
@@ -184,6 +243,9 @@ pub fn start_onvif_bridge(
                                             }
                                             if let Ok(mut names) = bridge_clone.stream_names.write() {
                                                 names.remove(&slot);
+                                            }
+                                            if let Some(handle) = motion_tasks.remove(&slot) {
+                                                handle.abort();
                                             }
                                             log::info!("Camera {} removed from endpoint {}", id, slot + 2);
                                         }
@@ -209,6 +271,8 @@ fn populate_camera_state(state_lock: &Arc<RwLock<CameraEndpointState>>, camera: 
 
     // Mark slot as occupied
     state.occupied = true;
+    state.motion_supported = camera.supports_motion;
+    state.motion_detected = false;
 
     // BDBI fields from ONVIF device info
     state.vendor_name = camera.device_info.manufacturer.clone();

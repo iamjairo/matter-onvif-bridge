@@ -5,9 +5,11 @@
 //! - WebRtcTransportProvider (0x0553)
 
 pub mod cluster_av_stream;
+pub mod cluster_occupancy;
 pub mod cluster_webrtc;
 pub mod types;
 
 pub use cluster_av_stream::{AvStreamHandler, AV_STREAM_CLUSTER};
+pub use cluster_occupancy::{OccupancyDataver, OccupancyHandler, OCCUPANCY_CLUSTER};
 pub use cluster_webrtc::{WebRtcHandler, WEBRTC_CLUSTER};
 pub use types::CameraEndpointState;

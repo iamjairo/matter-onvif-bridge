@@ -1,4 +1,4 @@
-#![recursion_limit = "512"]
+#![recursion_limit = "2048"]
 
 mod config;
 mod mdns;
@@ -39,6 +39,7 @@ use rs_matter::utils::storage::pooled::PooledBuffers;
 use rs_matter::{clusters, devices, Matter};
 
 use matter_camera::cluster_av_stream::{AvStreamHandler, AV_STREAM_CLUSTER};
+use matter_camera::cluster_occupancy::{OccupancyDataver, OccupancyHandler, OCCUPANCY_CLUSTER};
 use matter_camera::cluster_webrtc::{WebRtcHandler, WEBRTC_CLUSTER};
 use matter_camera::types::CameraEndpointState;
 
@@ -58,8 +59,15 @@ const DEV_TYPE_CAMERA: DeviceType = DeviceType {
 /// Maximum number of camera endpoints we pre-allocate.
 const MAX_CAMERAS: usize = 16;
 
-/// Endpoint IDs: 0 = root, 1 = aggregator, 2..17 = camera slots
+/// How many of the pre-allocated camera slots include the OccupancySensing
+/// cluster (for cameras whose ONVIF device advertises a MotionAlarm topic).
+/// The remaining `MAX_CAMERAS - WITH_OCCUPANCY_CAMERAS` slots are camera-only.
+pub const WITH_OCCUPANCY_CAMERAS: usize = 12;
+
+/// Endpoint IDs: 0 = root, 1 = aggregator, 2..13 = camera+occupancy slots,
+/// 14..17 = camera-only slots.
 const AGGREGATOR_EP: u16 = 1;
+#[allow(dead_code)]
 const CAMERA_EP_START: u16 = 2;
 
 fn main() -> Result<(), Error> {
@@ -115,9 +123,26 @@ fn main() -> Result<(), Error> {
         .map(|s| WebRtcHandler::new(Dataver::new_rand(&mut rand), Arc::clone(s)))
         .collect();
 
+    // OccupancySensing handlers — only for the first WITH_OCCUPANCY_CAMERAS slots.
+    // Each handler holds an Arc<Dataver> so the bridge thread can bump the
+    // dataver from outside the Matter executor when a new ONVIF event arrives.
+    let occupancy_datavers: Vec<OccupancyDataver> = (0..WITH_OCCUPANCY_CAMERAS)
+        .map(|_| OccupancyDataver::new(rand.next_u32()))
+        .collect();
+    let occupancy_handlers: Vec<OccupancyHandler> = (0..WITH_OCCUPANCY_CAMERAS)
+        .map(|i| {
+            OccupancyHandler::new(occupancy_datavers[i].clone(), Arc::clone(&camera_states[i]))
+        })
+        .collect();
+
     // Start ONVIF + go2rtc bridge on a separate tokio thread
     let registry = onvif_client::registry::CameraRegistry::new(64);
-    let media_bridge = onvif_bridge::start_onvif_bridge(&cfg, &camera_states, registry);
+    let media_bridge = onvif_bridge::start_onvif_bridge(
+        &cfg,
+        &camera_states,
+        &occupancy_datavers,
+        registry,
+    );
 
     // Wire SDP exchange callbacks into WebRTC handlers BEFORE building the data model.
     // Each handler gets a closure that looks up its stream name and calls go2rtc.
@@ -160,6 +185,7 @@ fn main() -> Result<(), Error> {
             rand,
             &av_handlers,
             &webrtc_handlers,
+            &occupancy_handlers,
             &camera_states,
         ),
     );
@@ -220,7 +246,10 @@ fn main() -> Result<(), Error> {
 /// We use a macro to generate the endpoint array at compile time since
 /// `Node` requires `&'static [Endpoint]`.
 macro_rules! camera_endpoints {
-    ($($id:expr),* $(,)?) => {
+    (
+        with_occupancy: [$($occ_id:expr),* $(,)?],
+        plain: [$($plain_id:expr),* $(,)?] $(,)?
+    ) => {
         &[
             // Endpoint 0: Root
             endpoints::root_endpoint_with_groups(NetworkType::Ethernet),
@@ -230,10 +259,25 @@ macro_rules! camera_endpoints {
                 device_types: devices!(DEV_TYPE_AGGREGATOR),
                 clusters: clusters!(desc::DescHandler::CLUSTER),
             },
-            // Camera endpoints (pre-allocated)
+            // Camera endpoints with OccupancySensing
             $(
                 Endpoint {
-                    id: $id,
+                    id: $occ_id,
+                    device_types: devices!(DEV_TYPE_CAMERA, DEV_TYPE_BRIDGED_NODE),
+                    clusters: clusters!(
+                        desc::DescHandler::CLUSTER,
+                        groups::GroupsHandler::CLUSTER,
+                        BridgedHandler::CLUSTER,
+                        AV_STREAM_CLUSTER,
+                        WEBRTC_CLUSTER,
+                        OCCUPANCY_CLUSTER
+                    ),
+                },
+            )*
+            // Camera-only endpoints (no OccupancySensing)
+            $(
+                Endpoint {
+                    id: $plain_id,
                     device_types: devices!(DEV_TYPE_CAMERA, DEV_TYPE_BRIDGED_NODE),
                     clusters: clusters!(
                         desc::DescHandler::CLUSTER,
@@ -251,7 +295,8 @@ macro_rules! camera_endpoints {
 const NODE: Node<'static> = Node {
     id: 0,
     endpoints: camera_endpoints![
-        2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17
+        with_occupancy: [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+        plain: [14, 15, 16, 17],
     ],
 };
 
@@ -381,6 +426,7 @@ fn dm_handler<'a>(
     mut rand: impl RngCore + Copy,
     av_handlers: &'a [AvStreamHandler],
     webrtc_handlers: &'a [WebRtcHandler],
+    occupancy_handlers: &'a [OccupancyHandler],
     camera_states: &'a [Arc<RwLock<CameraEndpointState>>],
 ) -> impl AsyncMetadata + AsyncHandler + 'a {
     // Build the camera endpoint handler chain
@@ -398,7 +444,8 @@ fn dm_handler<'a>(
     // changes the type. We need to use a macro or manual unrolling.
     //
     // For Phase 1, we'll use a helper that chains all 16 endpoints.
-    macro_rules! chain_camera_ep {
+    // Common cluster handlers shared by every camera endpoint variant.
+    macro_rules! chain_camera_base {
         ($chain:expr, $rand:expr, $av:expr, $webrtc:expr, $states:expr, $ep:expr, $idx:expr) => {
             $chain
                 .chain(
@@ -424,22 +471,34 @@ fn dm_handler<'a>(
         };
     }
 
-    let chain = chain_camera_ep!(chain, rand, av_handlers, webrtc_handlers, camera_states, 2, 0);
-    let chain = chain_camera_ep!(chain, rand, av_handlers, webrtc_handlers, camera_states, 3, 1);
-    let chain = chain_camera_ep!(chain, rand, av_handlers, webrtc_handlers, camera_states, 4, 2);
-    let chain = chain_camera_ep!(chain, rand, av_handlers, webrtc_handlers, camera_states, 5, 3);
-    let chain = chain_camera_ep!(chain, rand, av_handlers, webrtc_handlers, camera_states, 6, 4);
-    let chain = chain_camera_ep!(chain, rand, av_handlers, webrtc_handlers, camera_states, 7, 5);
-    let chain = chain_camera_ep!(chain, rand, av_handlers, webrtc_handlers, camera_states, 8, 6);
-    let chain = chain_camera_ep!(chain, rand, av_handlers, webrtc_handlers, camera_states, 9, 7);
-    let chain = chain_camera_ep!(chain, rand, av_handlers, webrtc_handlers, camera_states, 10, 8);
-    let chain = chain_camera_ep!(chain, rand, av_handlers, webrtc_handlers, camera_states, 11, 9);
-    let chain = chain_camera_ep!(chain, rand, av_handlers, webrtc_handlers, camera_states, 12, 10);
-    let chain = chain_camera_ep!(chain, rand, av_handlers, webrtc_handlers, camera_states, 13, 11);
-    let chain = chain_camera_ep!(chain, rand, av_handlers, webrtc_handlers, camera_states, 14, 12);
-    let chain = chain_camera_ep!(chain, rand, av_handlers, webrtc_handlers, camera_states, 15, 13);
-    let chain = chain_camera_ep!(chain, rand, av_handlers, webrtc_handlers, camera_states, 16, 14);
-    let chain = chain_camera_ep!(chain, rand, av_handlers, webrtc_handlers, camera_states, 17, 15);
+    // Endpoints 2..=13: camera + OccupancySensing (12 slots).
+    macro_rules! chain_camera_ep_with_occupancy {
+        ($chain:expr, $rand:expr, $av:expr, $webrtc:expr, $occ:expr, $states:expr, $ep:expr, $idx:expr) => {
+            chain_camera_base!($chain, $rand, $av, $webrtc, $states, $ep, $idx)
+                .chain(
+                    EpClMatcher::new(Some($ep), Some(OCCUPANCY_CLUSTER.id)),
+                    Async(&$occ[$idx]),
+                )
+        };
+    }
+
+    let chain = chain_camera_ep_with_occupancy!(chain, rand, av_handlers, webrtc_handlers, occupancy_handlers, camera_states, 2, 0);
+    let chain = chain_camera_ep_with_occupancy!(chain, rand, av_handlers, webrtc_handlers, occupancy_handlers, camera_states, 3, 1);
+    let chain = chain_camera_ep_with_occupancy!(chain, rand, av_handlers, webrtc_handlers, occupancy_handlers, camera_states, 4, 2);
+    let chain = chain_camera_ep_with_occupancy!(chain, rand, av_handlers, webrtc_handlers, occupancy_handlers, camera_states, 5, 3);
+    let chain = chain_camera_ep_with_occupancy!(chain, rand, av_handlers, webrtc_handlers, occupancy_handlers, camera_states, 6, 4);
+    let chain = chain_camera_ep_with_occupancy!(chain, rand, av_handlers, webrtc_handlers, occupancy_handlers, camera_states, 7, 5);
+    let chain = chain_camera_ep_with_occupancy!(chain, rand, av_handlers, webrtc_handlers, occupancy_handlers, camera_states, 8, 6);
+    let chain = chain_camera_ep_with_occupancy!(chain, rand, av_handlers, webrtc_handlers, occupancy_handlers, camera_states, 9, 7);
+    let chain = chain_camera_ep_with_occupancy!(chain, rand, av_handlers, webrtc_handlers, occupancy_handlers, camera_states, 10, 8);
+    let chain = chain_camera_ep_with_occupancy!(chain, rand, av_handlers, webrtc_handlers, occupancy_handlers, camera_states, 11, 9);
+    let chain = chain_camera_ep_with_occupancy!(chain, rand, av_handlers, webrtc_handlers, occupancy_handlers, camera_states, 12, 10);
+    let chain = chain_camera_ep_with_occupancy!(chain, rand, av_handlers, webrtc_handlers, occupancy_handlers, camera_states, 13, 11);
+    // Endpoints 14..=17: camera-only (4 slots).
+    let chain = chain_camera_base!(chain, rand, av_handlers, webrtc_handlers, camera_states, 14, 12);
+    let chain = chain_camera_base!(chain, rand, av_handlers, webrtc_handlers, camera_states, 15, 13);
+    let chain = chain_camera_base!(chain, rand, av_handlers, webrtc_handlers, camera_states, 16, 14);
+    let chain = chain_camera_base!(chain, rand, av_handlers, webrtc_handlers, camera_states, 17, 15);
 
     (
         NODE,

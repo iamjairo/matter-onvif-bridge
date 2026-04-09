@@ -17,6 +17,10 @@ pub struct CameraDevice {
     pub profiles: Vec<MediaProfile>,
     /// Primary RTSP stream URI
     pub stream_uri: String,
+    /// ONVIF Events service URL (from GetCapabilities), if advertised.
+    pub events_url: Option<String>,
+    /// True if the device's event TopicSet contains a `MotionAlarm` topic.
+    pub supports_motion: bool,
 }
 
 /// ONVIF device information.
