@@ -85,18 +85,32 @@ fn main() -> Result<(), Error> {
         cfg.matter.discriminator
     );
 
-    // Device details — using test attestation VID/PID but with real product info
+    // Root device basic info. This describes the bridge itself, not the
+    // bridged cameras — each camera's serial/hw/sw is exposed via its own
+    // BridgedDeviceBasicInformation cluster (see BridgedHandler below).
+    //
+    // The serial number is derived from the bridge host's hostname so it's
+    // stable per-deployment. Software version is taken from the crate's
+    // Cargo.toml at compile time.
+    let host_serial: &'static str = Box::leak(
+        hostname::get()
+            .ok()
+            .and_then(|s| s.into_string().ok())
+            .map(|h| format!("matter-onvif-bridge@{h}"))
+            .unwrap_or_else(|| "matter-onvif-bridge".to_string())
+            .into_boxed_str(),
+    );
     let dev_det = rs_matter::dm::clusters::basic_info::BasicInfoConfig {
         vid: 0xFFF1,  // Test vendor ID (required for test DAC attestation)
         pid: 0x8001,  // Test product ID
         product_name: "Matter-ONVIF Camera Bridge",
         vendor_name: "matter-onvif-bridge",
         device_name: "Camera Bridge",
-        serial_no: "MOBR-0001",
+        serial_no: host_serial,
         hw_ver: 1,
         hw_ver_str: "1.0",
         sw_ver: 1,
-        sw_ver_str: "0.1.0",
+        sw_ver_str: env!("CARGO_PKG_VERSION"),
         ..rs_matter::dm::clusters::basic_info::BasicInfoConfig::new()
     };
     let matter = Matter::new_default(&dev_det, TEST_DEV_COMM, &TEST_DEV_ATT, cfg.matter.port);

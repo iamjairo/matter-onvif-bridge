@@ -86,6 +86,7 @@ pub fn start_onvif_bridge(
     let bridge_clone = media_bridge.clone();
     let onvif_username = cfg.onvif.username.clone();
     let onvif_password = cfg.onvif.password.clone();
+    let camera_names = cfg.onvif.camera_names.clone();
 
     std::thread::Builder::new()
         .name("onvif-media-bridge".into())
@@ -176,10 +177,21 @@ pub fn start_onvif_bridge(
                                             map.insert(slot, stream_name);
                                         }
 
-                                        populate_camera_state(&states[slot], &camera);
+                                        // Prefer serial-keyed lookup (stable across IP changes),
+                                        // fall back to host-keyed.
+                                        let friendly_name = camera_names
+                                            .get(&camera.device_info.serial_number)
+                                            .or_else(|| camera_names.get(&camera.id))
+                                            .or_else(|| camera_names.get(&camera.host))
+                                            .cloned();
+                                        populate_camera_state(
+                                            &states[slot],
+                                            &camera,
+                                            friendly_name.as_deref(),
+                                        );
                                         log::info!(
                                             "Camera '{}' ({}) → endpoint {} (motion={}), stream registered",
-                                            camera.device_info.model,
+                                            friendly_name.as_deref().unwrap_or(&camera.device_info.model),
                                             camera.id,
                                             slot + 2,
                                             camera.supports_motion,
@@ -197,12 +209,14 @@ pub fn start_onvif_bridge(
                                                     username: onvif_username.clone(),
                                                     password: onvif_password.clone(),
                                                     events_url,
-                                                    label: format!(
-                                                        "{} {} @ {}",
-                                                        camera.device_info.manufacturer,
-                                                        camera.device_info.model,
-                                                        camera.host
-                                                    ),
+                                                    label: friendly_name.clone().unwrap_or_else(|| {
+                                                        format!(
+                                                            "{} {} @ {}",
+                                                            camera.device_info.manufacturer,
+                                                            camera.device_info.model,
+                                                            camera.host
+                                                        )
+                                                    }),
                                                 };
                                                 let state_for_pump = Arc::clone(&states[slot]);
                                                 let dataver_for_pump =
@@ -232,7 +246,16 @@ pub fn start_onvif_bridge(
                                 RegistryEvent::Updated(camera) => {
                                     if let Ok(map) = bridge_clone.slot_map.read() {
                                         if let Some(&slot) = map.get(&camera.id) {
-                                            populate_camera_state(&states[slot], &camera);
+                                            let friendly_name = camera_names
+                                                .get(&camera.device_info.serial_number)
+                                                .or_else(|| camera_names.get(&camera.id))
+                                                .or_else(|| camera_names.get(&camera.host))
+                                                .map(String::as_str);
+                                            populate_camera_state(
+                                                &states[slot],
+                                                &camera,
+                                                friendly_name,
+                                            );
                                         }
                                     }
                                 }
@@ -264,7 +287,14 @@ pub fn start_onvif_bridge(
 }
 
 /// Populate a camera endpoint's cluster state from ONVIF device data.
-fn populate_camera_state(state_lock: &Arc<RwLock<CameraEndpointState>>, camera: &CameraDevice) {
+///
+/// `friendly_name` overrides the auto-generated `manufacturer model` label
+/// when supplied via `ONVIF_CAMERA_NAMES`.
+fn populate_camera_state(
+    state_lock: &Arc<RwLock<CameraEndpointState>>,
+    camera: &CameraDevice,
+    friendly_name: Option<&str>,
+) {
     let Ok(mut state) = state_lock.write() else {
         log::error!("Failed to lock camera state for writing");
         return;
@@ -282,10 +312,12 @@ fn populate_camera_state(state_lock: &Arc<RwLock<CameraEndpointState>>, camera: 
     state.hardware_version_string = camera.device_info.hardware_id.clone();
     state.software_version_string = camera.device_info.firmware_version.clone();
     state.unique_id = camera.id.clone();
-    state.node_label = format!(
-        "{} {}",
-        camera.device_info.manufacturer, camera.device_info.model
-    );
+    state.node_label = friendly_name.map(str::to_string).unwrap_or_else(|| {
+        format!(
+            "{} {}",
+            camera.device_info.manufacturer, camera.device_info.model
+        )
+    });
 
     // Video params from first profile
     if let Some(profile) = camera.profiles.first() {

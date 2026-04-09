@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::env;
 
 #[derive(Debug, Clone)]
@@ -15,6 +16,10 @@ pub struct OnvifConfig {
     pub discovery_interval_ms: u64,
     pub discovery_mode: DiscoveryMode,
     pub static_cameras: Vec<String>,
+    /// Optional friendly-name overrides. Keys may be either a camera serial
+    /// number (preferred — survives IP changes) or a host/IP fallback.
+    /// Sourced from `ONVIF_CAMERA_NAMES="key=Name,key=Name,..."`.
+    pub camera_names: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone)]
@@ -55,6 +60,7 @@ impl Default for Config {
                 discovery_interval_ms: 60_000,
                 discovery_mode: DiscoveryMode::Auto,
                 static_cameras: Vec::new(),
+                camera_names: HashMap::new(),
             },
             go2rtc: Go2RtcConfig {
                 mode: Go2RtcMode::External,
@@ -85,6 +91,20 @@ impl Config {
             static_cameras_str.split(',').map(|s| s.trim().to_string()).collect()
         };
 
+        // ONVIF_CAMERA_NAMES="192.168.86.5=Front Door,192.168.86.2=Backyard"
+        let camera_names: HashMap<String, String> = env::var("ONVIF_CAMERA_NAMES")
+            .unwrap_or_default()
+            .split(',')
+            .filter_map(|entry| {
+                let entry = entry.trim();
+                if entry.is_empty() {
+                    return None;
+                }
+                let (host, name) = entry.split_once('=')?;
+                Some((host.trim().to_string(), name.trim().to_string()))
+            })
+            .collect();
+
         let discovery_mode = match env::var("ONVIF_DISCOVERY_MODE")
             .unwrap_or_default()
             .to_lowercase()
@@ -113,6 +133,7 @@ impl Config {
                     .unwrap_or(defaults.onvif.discovery_interval_ms),
                 discovery_mode,
                 static_cameras,
+                camera_names,
             },
             go2rtc: Go2RtcConfig {
                 mode: go2rtc_mode,
