@@ -53,10 +53,10 @@ pub async fn connect_camera(
     // if this probe errors — many cameras still work without events.
     let supports_motion = match events_url.as_deref() {
         Some(url) => match client.get_event_properties(url).await {
-            Ok(props) => props
-                .topics
-                .iter()
-                .any(|t| t.to_ascii_lowercase().ends_with("motionalarm")),
+            Ok(props) => props.topics.iter().any(|t| {
+                let lc = t.to_ascii_lowercase();
+                lc.ends_with("motionalarm") || lc.contains("cellmotiondetector/motion")
+            }),
             Err(e) => {
                 debug!("GetEventProperties failed: {e}");
                 false

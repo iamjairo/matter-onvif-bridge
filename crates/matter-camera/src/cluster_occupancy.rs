@@ -41,10 +41,14 @@ const SENSOR_TYPE_PIR: u8 = 0;
 /// Bitmap §2.7.5.3 — bit 0 = PIR.
 const SENSOR_TYPE_BITMAP_PIR: u8 = 0b0000_0001;
 
+/// FeatureMap bit 0 = PIR. Required by Google Home for the cluster to be
+/// surfaced as a motion sensor entity.
+const FEATURE_MAP_PIR: u32 = 0b0000_0001;
+
 pub const OCCUPANCY_CLUSTER: Cluster<'static> = Cluster::new(
     CLUSTER_ID,
     CLUSTER_REVISION,
-    0, // feature_map — no PIR/US/PHY feature subset advertised (legacy attribute path)
+    FEATURE_MAP_PIR,
     attributes!(
         Attribute::new(Attributes::Occupancy as _, Access::RV, Quality::NONE),
         Attribute::new(Attributes::OccupancySensorType as _, Access::RV, Quality::FIXED),

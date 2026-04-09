@@ -13,9 +13,19 @@ use std::time::Duration;
 use oxvif::OnvifClient;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
-use tracing::{debug, info, warn};
+use tracing::{debug, info, trace, warn};
 
-const MOTION_TOPIC: &str = "tns1:VideoSource/MotionAlarm";
+/// Topic filter expression matching both motion topics VIGI cameras advertise.
+/// `tns1:RuleEngine/CellMotionDetector/Motion` is what the C540V/C350 actually
+/// emit; `tns1:VideoSource/MotionAlarm` is also advertised on some firmwares
+/// but never fires on these models. The `||` is the ONVIF ConcreteSet OR
+/// operator from the WS-BaseNotification topic dialect.
+const MOTION_TOPIC: &str =
+    "tns1:RuleEngine/CellMotionDetector/Motion|tns1:VideoSource/MotionAlarm";
+
+/// Substrings (lowercased) that mark a notification as motion-related,
+/// independent of the device's namespace prefix.
+const MOTION_TOPIC_MARKERS: &[&str] = &["cellmotiondetector/motion", "motionalarm"];
 const PULL_TIMEOUT: &str = "PT5S";
 const PULL_MAX_MESSAGES: u32 = 16;
 const SUBSCRIPTION_LIFETIME: &str = "PT60S";
@@ -105,15 +115,20 @@ where
             .await
             .map_err(|e| format!("PullMessages failed: {e}"))?;
 
+        if !messages.is_empty() {
+            trace!(camera = %label, count = messages.len(), "PullMessages returned");
+        }
         for msg in messages {
-            if !msg.topic.to_ascii_lowercase().ends_with("motionalarm") {
+            let topic_lc = msg.topic.to_ascii_lowercase();
+            if !MOTION_TOPIC_MARKERS.iter().any(|m| topic_lc.contains(m)) {
+                debug!(camera = %label, topic = %msg.topic, "ignoring non-motion topic");
                 continue;
             }
             if let Some(state) = decode_motion_state(&msg.data) {
-                debug!(camera = %label, motion = state, "motion event");
+                info!(camera = %label, motion = state, "motion event");
                 on_change(state);
             } else {
-                debug!(
+                warn!(
                     camera = %label,
                     data = ?msg.data,
                     "motion notification without recognised state field"

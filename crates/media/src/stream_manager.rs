@@ -30,6 +30,15 @@ pub async fn run_stream_manager(
                     continue;
                 }
 
+                if api.stream_matches(&stream_name, &rtsp_url).await {
+                    info!(
+                        camera_id = camera.id,
+                        stream_name,
+                        "Stream already registered in go2rtc with matching URL, skipping"
+                    );
+                    continue;
+                }
+
                 match api.add_stream(&stream_name, &rtsp_url).await {
                     Ok(()) => {
                         info!(

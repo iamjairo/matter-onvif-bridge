@@ -198,9 +198,10 @@ pub fn start_onvif_bridge(
                                                     password: onvif_password.clone(),
                                                     events_url,
                                                     label: format!(
-                                                        "{} {}",
+                                                        "{} {} @ {}",
                                                         camera.device_info.manufacturer,
-                                                        camera.device_info.model
+                                                        camera.device_info.model,
+                                                        camera.host
                                                     ),
                                                 };
                                                 let state_for_pump = Arc::clone(&states[slot]);

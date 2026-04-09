@@ -6,7 +6,21 @@
 //! - POST /api/webrtc?src={name}       — SDP offer/answer exchange
 //! - GET  /api/streams                 — List registered streams
 
-use tracing::{debug, warn};
+use std::collections::HashMap;
+
+use serde::Deserialize;
+use tracing::debug;
+
+#[derive(Debug, Deserialize)]
+struct StreamProducer {
+    url: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct StreamInfo {
+    #[serde(default)]
+    producers: Vec<StreamProducer>,
+}
 
 /// go2rtc REST API client.
 #[derive(Clone)]
@@ -114,6 +128,27 @@ impl Go2RtcApi {
         );
 
         Ok(sdp_answer)
+    }
+
+    /// Return true if go2rtc already has a stream named `name` whose first
+    /// producer URL matches `expected_url`. Used to skip redundant PUTs that
+    /// would otherwise return 400 Bad Request from go2rtc.
+    pub async fn stream_matches(&self, name: &str, expected_url: &str) -> bool {
+        let url = format!("{}/api/streams", self.base_url);
+        let Ok(resp) = self.client.get(&url).send().await else {
+            return false;
+        };
+        if !resp.status().is_success() {
+            return false;
+        }
+        let Ok(streams) = resp.json::<HashMap<String, StreamInfo>>().await else {
+            return false;
+        };
+        streams
+            .get(name)
+            .and_then(|s| s.producers.first())
+            .map(|p| p.url == expected_url)
+            .unwrap_or(false)
     }
 
     /// Check if go2rtc is ready by polling the API endpoint.
