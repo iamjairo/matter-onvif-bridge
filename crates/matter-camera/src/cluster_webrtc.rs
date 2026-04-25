@@ -62,8 +62,10 @@ pub const WEBRTC_CLUSTER: Cluster<'static> = Cluster::new(
         Command::new(Commands::ProvideIceCandidates as _, None, Access::WO),
         Command::new(Commands::EndSession as _, None, Access::WO)
     ),
-    |_, _, _| true,
-    |_, _, _| true,
+    &[], // events: none
+    |_, _, _| true, // with_attrs
+    |_, _, _| true, // with_cmds
+    |_, _, _| true, // with_events
 );
 
 // ── SDP exchange callback ──

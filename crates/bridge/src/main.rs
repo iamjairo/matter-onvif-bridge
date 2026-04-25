@@ -10,19 +10,20 @@ use std::net::UdpSocket;
 use std::sync::Arc;
 use std::sync::RwLock;
 
-use embassy_futures::select::{select, select4};
+use embassy_futures::select::select4;
 use rand::RngCore;
 
 use rs_matter::crypto::{default_crypto, Crypto};
 use rs_matter::dm::clusters::desc::{self, ClusterHandler as _};
 use rs_matter::dm::clusters::groups::{self, ClusterHandler as _};
-use rs_matter::dm::clusters::net_comm::NetworkType;
+use rs_matter::dm::clusters::net_comm::SharedNetworks;
 use rs_matter::dm::devices::test::{DAC_PRIVKEY, TEST_DEV_ATT, TEST_DEV_COMM};
 use rs_matter::dm::devices::{DEV_TYPE_AGGREGATOR, DEV_TYPE_BRIDGED_NODE};
 use rs_matter::dm::endpoints;
-use rs_matter::dm::events::DefaultEvents;
-use rs_matter::dm::networks::unix::UnixNetifs;
-use rs_matter::dm::subscriptions::DefaultSubscriptions;
+use rs_matter::dm::events::Events;
+use rs_matter::dm::networks::eth::EthNetwork;
+use rs_matter::dm::networks::SysNetifs;
+use rs_matter::dm::subscriptions::Subscriptions;
 use rs_matter::dm::DeviceType;
 use rs_matter::dm::{
     Async, AsyncHandler, AsyncMetadata, DataModel, Dataver, EmptyHandler, Endpoint, EpClMatcher,
@@ -31,13 +32,13 @@ use rs_matter::dm::{
 use rs_matter::error::Error;
 use rs_matter::pairing::qr::QrTextType;
 use rs_matter::pairing::DiscoveryCapabilities;
-use rs_matter::persist::{Psm, NO_NETWORKS};
+use rs_matter::persist::{DirKvBlobStore, SharedKvBlobStore};
 use rs_matter::respond::DefaultResponder;
 use rs_matter::sc::pase::MAX_COMM_WINDOW_TIMEOUT_SECS;
 use rs_matter::transport::MATTER_SOCKET_BIND_ADDR;
 use rs_matter::utils::select::Coalesce;
 use rs_matter::utils::storage::pooled::PooledBuffers;
-use rs_matter::{clusters, devices, Matter};
+use rs_matter::{clusters, devices, root_endpoint, Matter};
 
 use matter_camera::cluster_av_stream::{AvStreamHandler, AV_STREAM_CLUSTER};
 use matter_camera::cluster_occupancy::{OccupancyDataver, OccupancyHandler, OCCUPANCY_CLUSTER};
@@ -121,14 +122,21 @@ fn main() -> Result<(), Error> {
         sw_ver_str: env!("CARGO_PKG_VERSION"),
         ..rs_matter::dm::clusters::basic_info::BasicInfoConfig::new()
     };
-    let matter = Matter::new_default(&dev_det, TEST_DEV_COMM, &TEST_DEV_ATT, cfg.matter.port);
-    matter.initialize_transport_buffers()?;
+    let mut matter = Matter::new_default(&dev_det, TEST_DEV_COMM, &TEST_DEV_ATT, cfg.matter.port);
 
     let buffers = PooledBuffers::<10, _>::new(0);
-    let subscriptions = DefaultSubscriptions::new();
+    let subscriptions: Subscriptions = Subscriptions::new();
     let crypto = default_crypto(rand::thread_rng(), DAC_PRIVKEY);
     let mut rand = crypto.rand()?;
-    let events = DefaultEvents::new_default();
+    let mut events: Events = Events::new_default();
+
+    // Persistence — the new rs-matter uses a KvBlobStore model instead of the
+    // old Psm. Load persisted state before building the data model.
+    let persist_path = std::path::PathBuf::from(&cfg.matter.storage_path);
+    let mut kv = DirKvBlobStore::new(persist_path);
+    let mut kv_buf = [0u8; 4096];
+    futures_lite::future::block_on(matter.load_persist(&mut kv, &mut kv_buf))?;
+    futures_lite::future::block_on(events.load_persist(&mut kv, &mut kv_buf))?;
 
     // Create shared state for each camera endpoint
     let camera_states: Vec<Arc<RwLock<CameraEndpointState>>> = (0..MAX_CAMERAS)
@@ -202,7 +210,7 @@ fn main() -> Result<(), Error> {
         &crypto,
         &buffers,
         &subscriptions,
-        Some(&events),
+        &events,
         dm_handler(
             rand,
             &av_handlers,
@@ -210,6 +218,8 @@ fn main() -> Result<(), Error> {
             &occupancy_handlers,
             &camera_states,
         ),
+        SharedKvBlobStore::new(kv, kv_buf.as_mut_slice()),
+        SharedNetworks::new(EthNetwork::new_default()),
     );
 
     let responder = DefaultResponder::new(&dm);
@@ -232,13 +242,8 @@ fn main() -> Result<(), Error> {
         async_io::Async::<UdpSocket>::new_nonblocking(s.into())?
     };
 
-    let mut mdns = pin!(mdns::run_mdns(&matter, &crypto, dm.change_notify()));
+    let mut mdns = pin!(mdns::run_mdns(&matter, &crypto));
     let mut transport = pin!(matter.run(&crypto, &socket, &socket, &socket));
-
-    let mut psm: Psm<4096> = Psm::new();
-    let path = std::path::PathBuf::from(&cfg.matter.storage_path);
-
-    psm.load(&path, &matter, NO_NETWORKS, Some(&events))?;
 
     if !matter.is_commissioned() {
         log::info!("Device not commissioned. Displaying QR code...");
@@ -249,13 +254,11 @@ fn main() -> Result<(), Error> {
         log::info!("Device already commissioned.");
     }
 
-    let mut persist = pin!(psm.run(&path, &matter, NO_NETWORKS, Some(&events)));
-
     let all = select4(
         &mut transport,
         &mut mdns,
-        &mut persist,
-        select(&mut respond, &mut dm_job).coalesce(),
+        &mut respond,
+        &mut dm_job,
     );
 
     futures_lite::future::block_on(all.coalesce())
@@ -274,7 +277,7 @@ macro_rules! camera_endpoints {
     ) => {
         &[
             // Endpoint 0: Root
-            endpoints::root_endpoint_with_groups(NetworkType::Ethernet),
+            root_endpoint!(geth),
             // Endpoint 1: Aggregator
             Endpoint {
                 id: AGGREGATOR_EP,
@@ -315,7 +318,6 @@ macro_rules! camera_endpoints {
 }
 
 const NODE: Node<'static> = Node {
-    id: 0,
     endpoints: camera_endpoints![
         with_occupancy: [2, 3, 4, 5, 6, 7, 8],
         plain: [9],
@@ -517,15 +519,12 @@ fn dm_handler<'a>(
 
     (
         NODE,
-        endpoints::with_eth(
+        endpoints::with_eth_sys(
+            &false,
             &(),
-            &UnixNetifs,
+            &SysNetifs,
             rand,
-            endpoints::with_sys(
-                &false,
-                rand,
-                endpoints::with_groups(rand, chain),
-            ),
+            chain,
         ),
     )
 }

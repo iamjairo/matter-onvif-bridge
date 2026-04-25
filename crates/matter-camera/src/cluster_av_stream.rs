@@ -147,8 +147,10 @@ pub const AV_STREAM_CLUSTER: Cluster<'static> = Cluster::new(
         Command::new(Commands::SetStreamPriorities as _, None, Access::WO),
         Command::new(Commands::CaptureSnapshot as _, Some(Commands::CaptureSnapshotResponse as _), Access::WO)
     ),
-    |_, _, _| true, // with_attrs: all attributes enabled
-    |_, _, _| true, // with_cmds: all commands enabled
+    &[], // events: none
+    |_, _, _| true, // with_attrs
+    |_, _, _| true, // with_cmds
+    |_, _, _| true, // with_events
 );
 
 // ── Handler ──
@@ -325,7 +327,6 @@ impl Handler for AvStreamHandler {
         }
 
         self.dataver.changed();
-        ctx.notify_changed();
         Ok(())
     }
 

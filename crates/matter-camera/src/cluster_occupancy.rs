@@ -59,8 +59,10 @@ pub const OCCUPANCY_CLUSTER: Cluster<'static> = Cluster::new(
         )
     ),
     commands!(),
-    |_, _, _| true,
-    |_, _, _| true,
+    &[], // events: none
+    |_, _, _| true, // with_attrs
+    |_, _, _| true, // with_cmds
+    |_, _, _| true, // with_events
 );
 
 /// Cluster handler that reads `motion_detected` from the shared camera state.

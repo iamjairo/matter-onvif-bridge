@@ -2,18 +2,14 @@
 //! via the `zeroconf` crate. This avoids port 5353 conflicts with avahi-daemon
 //! and provides proper mDNS response handling for remote controllers.
 
-use rs_matter::dm::ChangeNotify;
 use rs_matter::error::Error;
 use rs_matter::transport::network::mdns::zeroconf::ZeroconfMdnsResponder;
 use rs_matter::{crypto::Crypto, Matter};
 
 pub async fn run_mdns<C: Crypto>(
     matter: &Matter<'_>,
-    crypto: C,
-    notify: &dyn ChangeNotify,
+    _crypto: C,
 ) -> Result<(), Error> {
     log::info!("Starting mDNS via system service (zeroconf/avahi)");
-    ZeroconfMdnsResponder::new(matter)
-        .run(crypto, notify)
-        .await
+    ZeroconfMdnsResponder::new(matter).run().await
 }
