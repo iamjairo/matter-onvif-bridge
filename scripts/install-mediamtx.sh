@@ -42,4 +42,4 @@ mv "${TMP}/mediamtx" "${INSTALL_DIR}/mediamtx"
 chmod +x "${INSTALL_DIR}/mediamtx"
 
 echo "Installed MediaMTX to ${INSTALL_DIR}/mediamtx"
-"${INSTALL_DIR}/mediamtx" --version 2>/dev/null || echo "(version check skipped)"
+"${INSTALL_DIR}/mediamtx" --version 2>/dev/null || echo "(version check skipped — mediamtx may not support --version on this build)"

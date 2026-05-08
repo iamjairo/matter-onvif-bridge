@@ -66,7 +66,7 @@ pub fn start_onvif_bridge(
         }
     };
 
-    log::info!("Media server: {media_server_label}");
+    tracing::info!("Media server: {media_server_label}");
 
     let media_bridge = MediaBridge {
         api: media_api,

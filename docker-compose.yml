@@ -38,7 +38,8 @@ services:
     image: alexxit/go2rtc:latest
     container_name: matter-onvif-go2rtc
     restart: unless-stopped
-    profiles: ["", "linux-bridge"]
+    # No profiles key → this service starts by default AND with the linux-bridge profile.
+    # Docker Compose runs services without a profiles key in every `docker compose up` call.
     volumes:
       - ./docker/go2rtc/go2rtc.yaml:/config/go2rtc.yaml:ro
     ports:

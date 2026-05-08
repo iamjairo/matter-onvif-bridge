@@ -169,11 +169,3 @@ impl MediaMtxApi {
         }
     }
 }
-
-/// Extract ICE candidates from an SDP string (shared with go2rtc path).
-pub fn extract_ice_candidates(sdp: &str) -> Vec<String> {
-    sdp.lines()
-        .filter(|line| line.starts_with("a=candidate:"))
-        .map(|line| line.trim().to_string())
-        .collect()
-}

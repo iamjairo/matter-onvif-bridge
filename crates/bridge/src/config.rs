@@ -174,7 +174,7 @@ impl Config {
             // Default: go2rtc
             let default_go2rtc = match defaults.media {
                 MediaConfig::Go2Rtc(ref c) => c.clone(),
-                MediaConfig::MediaMtx(_) => unreachable!(),
+                MediaConfig::MediaMtx(_) => unreachable!("default Config always contains Go2Rtc"),
             };
             let go2rtc_mode = match env::var("GO2RTC_MODE")
                 .unwrap_or_default()
