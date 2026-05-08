@@ -1,14 +1,15 @@
 # Matter-ONVIF Camera Bridge
 
-A Rust bridge that discovers ONVIF IP cameras and exposes them as Matter camera devices. Uses [rs-matter](https://github.com/project-chip/rs-matter) for the Matter protocol, [oxvif](https://github.com/smiti1642/oxvif) for ONVIF discovery/control, and [go2rtc](https://github.com/AlexxIT/go2rtc) for RTSP-to-WebRTC media bridging.
+A Rust bridge that discovers ONVIF IP cameras and exposes them as Matter camera devices. Uses [rs-matter](https://github.com/project-chip/rs-matter) for the Matter protocol, [oxvif](https://github.com/smiti1642/oxvif) for ONVIF discovery/control, and either [go2rtc](https://github.com/AlexxIT/go2rtc) or [MediaMTX](https://github.com/bluenviron/mediamtx) for RTSP-to-WebRTC media bridging.
 
 ## Features
 
 - **Matter 1.5 camera clusters** — CameraAvStreamManagement (0x0551) and WebRTCTransportProvider (0x0553)
 - **ONVIF discovery** — WS-Discovery + static camera list, with miss-threshold grace period
-- **WebRTC streaming** — SDP exchange via go2rtc for H.264/H.265 passthrough
-- **Bridge architecture** — up to 16 cameras exposed as bridged Matter endpoints
-- **Small footprint** — ~10MB binary, ~20MB runtime on Raspberry Pi
+- **WebRTC streaming** — SDP exchange via go2rtc or MediaMTX for H.264/H.265 passthrough
+- **Dual media-server support** — choose between go2rtc (default) or MediaMTX via `MEDIA_SERVER`
+- **Bridge architecture** — up to 8 cameras exposed as bridged Matter endpoints
+- **Small footprint** — ~10 MB binary, ~20 MB runtime on Raspberry Pi
 
 ## Quick Start
 
@@ -25,6 +26,16 @@ cargo run -p matter-onvif-bridge
 
 # 4. Commission with chip-tool or scan the QR code with Google Home
 chip-tool pairing onnetwork 2 20202021
+```
+
+### Using MediaMTX instead of go2rtc
+
+```bash
+# Start MediaMTX
+docker compose --profile mediamtx up -d
+
+# Run the bridge pointing at MediaMTX
+MEDIA_SERVER=mediamtx cargo run -p matter-onvif-bridge
 ```
 
 ## Cross-Compile for Raspberry Pi
@@ -51,16 +62,16 @@ cargo install cross --git https://github.com/cross-rs/cross
 # Build for the target architecture
 cross build --release --target aarch64-unknown-linux-gnu -p matter-onvif-bridge
 
-# Copy binary, config, and go2rtc installer to the target
+# Copy binary, config, and installers to the target
 scp target/aarch64-unknown-linux-gnu/release/matter-onvif-bridge <user>@<host>:~/matter-onvif-bridge/
-scp .env.example scripts/install-go2rtc.sh <user>@<host>:~/matter-onvif-bridge/
+scp .env.example scripts/install-go2rtc.sh scripts/install-mediamtx.sh <user>@<host>:~/matter-onvif-bridge/
 ```
 
 Then on the Linux machine:
 ```bash
 cd ~/matter-onvif-bridge
 
-# Install go2rtc
+# Install go2rtc (or mediamtx — see below)
 bash install-go2rtc.sh        # downloads to ./bin/go2rtc
 
 # Configure
@@ -79,20 +90,50 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source ~/.cargo/env
 
 # Install build dependencies (Ubuntu/Debian)
-sudo apt install -y build-essential pkg-config libdbus-1-dev
+sudo apt install -y build-essential pkg-config libdbus-1-dev libavahi-client-dev
 
 # Clone and build
 git clone <repo-url> matter-onvif-bridge
 cd matter-onvif-bridge
 cargo build --release -p matter-onvif-bridge
 
-# Install go2rtc
+# Install go2rtc (default) or mediamtx
 bash scripts/install-go2rtc.sh
+# — OR —
+bash scripts/install-mediamtx.sh
 
 # Configure and run
 cp .env.example .env
 nano .env
 RUST_LOG=info ./target/release/matter-onvif-bridge
+```
+
+## Deploy to Docker (Linux only)
+
+> **macOS note**: Docker Desktop on macOS runs containers inside a Linux VM.
+> `--network=host` is not supported, so the bridge container cannot receive
+> the LAN multicast traffic that Matter (mDNS) and ONVIF (WS-Discovery)
+> require. On macOS, run the bridge natively and only use Docker for go2rtc
+> or MediaMTX.
+
+On Linux you can run everything — bridge included — with Docker using host
+networking. The `linux-bridge` Compose profile adds the bridge service:
+
+```bash
+# Build the bridge image
+docker compose --profile linux-bridge build
+
+# Start go2rtc + bridge (both on the host network)
+docker compose --profile linux-bridge up -d
+
+# View logs
+docker compose logs -f bridge
+```
+
+Make sure `/dev/net/tun` exists and IPv6 is enabled on the host:
+
+```bash
+sudo sysctl -w net.ipv6.conf.all.disable_ipv6=0
 ```
 
 ### Run as a systemd service
@@ -164,11 +205,18 @@ All configuration is via environment variables (`.env` file):
 | `ONVIF_DISCOVERY_MODE` | `auto` | `auto` (WS-Discovery + static) or `static` |
 | `ONVIF_DISCOVERY_INTERVAL` | `60000` | Rescan interval in ms |
 | `ONVIF_STATIC_CAMERAS` | | Comma-separated `host:port` list |
+| `ONVIF_CAMERA_NAMES` | | Friendly-name overrides: `serial=Name,ip=Name,...` |
+| `MEDIA_SERVER` | `go2rtc` | `go2rtc` or `mediamtx` |
 | `GO2RTC_MODE` | `external` | `external` (Docker) or `local` (subprocess) |
 | `GO2RTC_PATH` | `./bin/go2rtc` | Binary path for local mode |
 | `GO2RTC_HOST` | `localhost` | go2rtc API host |
 | `GO2RTC_API_PORT` | `1984` | go2rtc REST API port |
 | `GO2RTC_WEBRTC_PORT` | `8555` | go2rtc WebRTC port |
+| `MEDIAMTX_MODE` | `external` | `external` (Docker) or `local` (subprocess) |
+| `MEDIAMTX_PATH` | `./bin/mediamtx` | Binary path for local mode |
+| `MEDIAMTX_HOST` | `localhost` | MediaMTX API / WHEP host |
+| `MEDIAMTX_API_PORT` | `9997` | MediaMTX HTTP API port |
+| `MEDIAMTX_WHEP_PORT` | `8889` | MediaMTX WHEP (WebRTC) port |
 | `MATTER_PORT` | `5540` | Matter protocol port |
 | `MATTER_PASSCODE` | `20202021` | Commissioning passcode |
 | `MATTER_DISCRIMINATOR` | `3840` | Commissioning discriminator |
@@ -183,11 +231,11 @@ ONVIF Cameras (RTSP + SOAP)
     ↓
 [CameraRegistry] ← broadcast events (Added/Removed)
     ↓
-├→ [StreamManager] → registers RTSP streams in go2rtc
+├→ [StreamManager] → registers RTSP streams in go2rtc or MediaMTX
 ├→ [MatterBridge] → populates BridgedNodeEndpoints
 │   ├→ CameraAvStreamManagement (0x0551)
 │   └→ WebRtcTransportProvider (0x0553)
-│       └→ ProvideOffer → go2rtc SDP exchange → WebRTC stream
+│       └→ ProvideOffer → media-server SDP exchange → WebRTC stream
 │
 Matter Controllers (Google Home, chip-tool)
     ↓
@@ -198,10 +246,10 @@ Matter Controllers (Google Home, chip-tool)
 
 ```
 crates/
-  bridge/          # Main binary — Matter bridge + ONVIF + go2rtc wiring
+  bridge/          # Main binary — Matter bridge + ONVIF + media-server wiring
   matter-camera/   # Custom Matter cluster implementations (0x0551, 0x0553)
   onvif-client/    # ONVIF discovery, client, and camera registry
-  media/           # go2rtc API client, stream manager, WebRTC sessions
+  media/           # go2rtc / MediaMTX API clients, stream manager, WebRTC sessions
 ```
 
 ## License

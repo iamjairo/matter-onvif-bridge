@@ -175,7 +175,7 @@ fn main() -> Result<(), Error> {
     );
 
     // Wire SDP exchange callbacks into WebRTC handlers BEFORE building the data model.
-    // Each handler gets a closure that looks up its stream name and calls go2rtc.
+    // Each handler gets a closure that looks up its stream name and calls the media server.
     for (i, handler) in webrtc_handlers.iter_mut().enumerate() {
         let api = media_bridge.api.clone();
         let stream_names = media_bridge.stream_names.clone();
@@ -445,7 +445,7 @@ impl bridged_device_basic_information::ClusterHandler for BridgedHandler {
 /// Compose the full data model handler chain.
 ///
 /// This chains the root endpoint system handlers with the aggregator descriptor
-/// and all 16 pre-allocated camera endpoint handlers.
+/// and all pre-allocated camera endpoint handlers.
 fn dm_handler<'a>(
     mut rand: impl RngCore + Copy,
     av_handlers: &'a [AvStreamHandler],
@@ -454,7 +454,7 @@ fn dm_handler<'a>(
     camera_states: &'a [Arc<RwLock<CameraEndpointState>>],
 ) -> impl AsyncMetadata + AsyncHandler + 'a {
     // Build the camera endpoint handler chain
-    let mut chain = EmptyHandler
+    let chain = EmptyHandler
         // Aggregator endpoint descriptor
         .chain(
             EpClMatcher::new(Some(AGGREGATOR_EP), Some(desc::DescHandler::CLUSTER.id)),
@@ -495,7 +495,7 @@ fn dm_handler<'a>(
         };
     }
 
-    // Endpoints 2..=13: camera + OccupancySensing (12 slots).
+    // Endpoints 2..=8: camera + OccupancySensing (7 slots).
     macro_rules! chain_camera_ep_with_occupancy {
         ($chain:expr, $rand:expr, $av:expr, $webrtc:expr, $occ:expr, $states:expr, $ep:expr, $idx:expr) => {
             chain_camera_base!($chain, $rand, $av, $webrtc, $states, $ep, $idx)

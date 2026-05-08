@@ -147,8 +147,15 @@ impl Handler for WebRtcHandler {
 
         match cmd.cmd_id.try_into()? {
             Commands::ProvideOffer => {
+                // Matter 1.5 ProvideOffer fields:
+                //   ctx(0)  WebRTCSessionID — nullable u16 for session resumption (ignored here)
+                //   ctx(1)  SDP — the offer string
+                //   ctx(2)  ICEServers — optional list (not read; go2rtc/MediaMTX handles STUN)
+                //   ctx(3)  ICETransportPolicy — optional enum8 (not read)
+                //   ctx(4)  MetadataOptions — optional bitmap8 (not read)
                 let sdp_offer = fields.find_ctx(1)?.utf8().unwrap_or("");
-                let stream_usage = fields.find_ctx(2)?.u8().unwrap_or(3);
+                // StreamUsage is not a ProvideOffer field; default to LiveView.
+                let stream_usage = crate::types::StreamUsage::LiveView;
 
                 let mut state = self.state.write().map_err(|_| ErrorCode::Busy)?;
                 let session_id = state.next_session_id;
@@ -183,12 +190,7 @@ impl Handler for WebRtcHandler {
                     id: session_id,
                     peer_node_id: 0,
                     peer_fabric_index: cmd.fab_idx,
-                    stream_usage: match stream_usage {
-                        0 => crate::types::StreamUsage::Internal,
-                        1 => crate::types::StreamUsage::Recording,
-                        2 => crate::types::StreamUsage::Analysis,
-                        _ => crate::types::StreamUsage::LiveView,
-                    },
+                    stream_usage,
                     video_stream_id: None,
                     audio_stream_id: None,
                     metadata_options: None,

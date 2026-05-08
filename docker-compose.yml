@@ -1,28 +1,93 @@
 # Matter-ONVIF Bridge — Docker Compose
 #
-# This runs ONLY go2rtc in Docker (RTSP→WebRTC media bridging).
-# The Rust bridge runs natively because it needs LAN multicast for:
-#   - ONVIF WS-Discovery (UDP 239.255.255.250:3702)
-#   - Matter mDNS commissioning (UDP 224.0.0.251:5353)
+# Three Compose profiles cover the common deployment scenarios:
 #
-# Usage:
-#   docker compose up -d                    # Start go2rtc
-#   cargo run -p matter-onvif-bridge        # Start bridge (separate terminal)
+#   (no profile / default)
+#     go2rtc only — start the media server, run the bridge natively.
+#     Required for macOS and recommended for production Linux because Matter
+#     needs raw LAN multicast (UDP 5353 for mDNS, UDP 3702 for WS-Discovery)
+#     which Docker cannot expose on macOS at all, and only works on Linux with
+#     --network=host.
+#
+#   --profile mediamtx
+#     MediaMTX instead of go2rtc as the RTSP→WebRTC server.
+#     Same network note as above — run the bridge natively.
+#
+#   --profile linux-bridge
+#     Adds the bridge itself as a Docker service using network_mode: host.
+#     Works ONLY on Linux, where host networking gives the container full
+#     access to LAN multicast. Does NOT work on macOS (Docker runs in a VM).
+#
+# Usage examples:
+#
+#   # Start go2rtc + run bridge natively (all platforms)
+#   docker compose up -d
+#   cargo run -p matter-onvif-bridge
+#
+#   # Start MediaMTX + run bridge natively (all platforms)
+#   docker compose --profile mediamtx up -d
+#   MEDIA_SERVER=mediamtx cargo run -p matter-onvif-bridge
+#
+#   # Full Docker deployment — Linux only
+#   docker compose --profile linux-bridge up -d
 
 services:
+
+  # ── go2rtc ────────────────────────────────────────────────────────────────────
   go2rtc:
     image: alexxit/go2rtc:latest
     container_name: matter-onvif-go2rtc
     restart: unless-stopped
+    profiles: ["", "linux-bridge"]
     volumes:
       - ./docker/go2rtc/go2rtc.yaml:/config/go2rtc.yaml:ro
     ports:
       # API — used by the bridge to register streams and exchange SDP
       - "${GO2RTC_API_PORT:-1984}:1984"
-      # WebRTC UDP — used for ICE/media between controller and go2rtc
+      # WebRTC UDP/TCP
       - "${GO2RTC_WEBRTC_PORT:-8555}:8555/tcp"
       - "${GO2RTC_WEBRTC_PORT:-8555}:8555/udp"
-    # go2rtc needs to reach RTSP cameras on the LAN.
-    # The default bridge network works because RTSP is unicast TCP —
-    # Docker NATs outbound connections to cameras just fine.
+    # go2rtc only needs to reach cameras via unicast TCP (RTSP).
+    # Docker's default bridge NAT handles that without host networking.
     network_mode: bridge
+
+  # ── MediaMTX ──────────────────────────────────────────────────────────────────
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    container_name: matter-onvif-mediamtx
+    restart: unless-stopped
+    profiles: ["mediamtx"]
+    environment:
+      MTX_LOGLEVEL: info
+    ports:
+      # HTTP API
+      - "${MEDIAMTX_API_PORT:-9997}:9997"
+      # WHEP (WebRTC-HTTP Egress Protocol)
+      - "${MEDIAMTX_WHEP_PORT:-8889}:8889"
+      # RTSP (optional — mediamtx can accept RTSP re-publish from cameras)
+      - "8554:8554"
+    network_mode: bridge
+
+  # ── Bridge (Linux host-networking only) ───────────────────────────────────────
+  # This service requires Linux with network_mode: host so that:
+  #   - mDNS multicast (UDP 224.0.0.251:5353) reaches Matter controllers
+  #   - WS-Discovery multicast (UDP 239.255.255.250:3702) reaches ONVIF cameras
+  # On macOS, Docker Desktop runs in a VM and host networking is unavailable;
+  # run the bridge natively with `cargo run` instead.
+  bridge:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: matter-onvif-bridge
+    restart: unless-stopped
+    profiles: ["linux-bridge"]
+    network_mode: host
+    env_file: .env
+    volumes:
+      - matter-storage:/app/.matter-storage
+    depends_on:
+      - go2rtc
+
+volumes:
+  matter-storage:
+

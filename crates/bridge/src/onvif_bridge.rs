@@ -1,12 +1,12 @@
-//! Bridges ONVIF discovery and go2rtc media to the Matter camera endpoint states.
+//! Bridges ONVIF discovery and the configured media server to the Matter camera endpoint states.
 //!
 //! Runs on a separate tokio runtime thread that:
-//! 1. Starts go2rtc manager (wait for readiness)
+//! 1. Starts the media server manager (go2rtc or MediaMTX) and waits for readiness
 //! 2. Runs ONVIF WS-Discovery loop
 //! 3. Feeds discovered cameras into the CameraRegistry
-//! 4. Registers RTSP streams in go2rtc via StreamManager
+//! 4. Registers RTSP streams in the media server via StreamManager
 //! 5. Populates pre-allocated camera endpoint states with real ONVIF data
-//! 6. Stores the go2rtc API and slot map for WebRTC command handling
+//! 6. Stores the media API and slot map for WebRTC command handling
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
@@ -15,6 +15,9 @@ use std::time::Duration;
 use matter_camera::types::{CameraEndpointState, VideoResolution, VideoSensorParams};
 use media::go2rtc_api::Go2RtcApi;
 use media::go2rtc_manager::{Go2RtcManager, Go2RtcMode};
+use media::media_api::AnyMediaApi;
+use media::mediamtx_api::MediaMtxApi;
+use media::mediamtx_manager::{MediaMtxManager, MediaMtxMode};
 use onvif_client::discovery::{DiscoveryConfig, DiscoveryEvent, DiscoveryMode};
 use matter_camera::cluster_occupancy::OccupancyDataver;
 use onvif_client::motion::{spawn_motion_pump, MotionPumpConfig};
@@ -22,35 +25,51 @@ use onvif_client::registry::{CameraRegistry, RegistryEvent};
 use onvif_client::types::CameraDevice;
 use tokio::sync::mpsc;
 
-use crate::config::{self, Config};
+use crate::config::{self, Config, MediaConfig};
 use crate::slot_persistence::SlotMap;
 use crate::{MAX_CAMERAS, WITH_OCCUPANCY_CAMERAS};
 
 /// Shared state accessible from the Matter handler thread for WebRTC negotiation.
 #[derive(Clone)]
 pub struct MediaBridge {
-    /// go2rtc API client for SDP exchange.
-    pub api: Go2RtcApi,
+    /// Media-server API client (go2rtc or MediaMTX) for SDP exchange.
+    pub api: AnyMediaApi,
     /// Maps camera ID → endpoint slot index (0-based, endpoint = slot + 2).
     pub slot_map: Arc<RwLock<HashMap<String, usize>>>,
-    /// Maps endpoint slot index → stream name for go2rtc.
+    /// Maps endpoint slot index → stream name for the media server.
     pub stream_names: Arc<RwLock<HashMap<usize, String>>>,
 }
 
-/// Start the ONVIF + go2rtc bridge on a separate tokio runtime thread.
+/// Start the ONVIF + media-server bridge on a separate tokio runtime thread.
 ///
 /// Returns a `MediaBridge` that can be used by the Matter WebRTC handler
-/// to perform SDP negotiation via go2rtc.
+/// to perform SDP negotiation via the configured media server.
 pub fn start_onvif_bridge(
     cfg: &Config,
     camera_states: &[Arc<RwLock<CameraEndpointState>>],
     occupancy_datavers: &[OccupancyDataver],
     registry: CameraRegistry,
 ) -> MediaBridge {
-    let go2rtc_api = Go2RtcApi::new(&cfg.go2rtc.host, cfg.go2rtc.api_port);
+    // Build the unified API client and start the media-server manager.
+    let (media_api, media_server_label): (AnyMediaApi, &'static str) = match &cfg.media {
+        MediaConfig::Go2Rtc(go2rtc_cfg) => {
+            let api = AnyMediaApi::Go2Rtc(Go2RtcApi::new(&go2rtc_cfg.host, go2rtc_cfg.api_port));
+            (api, "go2rtc")
+        }
+        MediaConfig::MediaMtx(mtx_cfg) => {
+            let api = AnyMediaApi::MediaMtx(MediaMtxApi::new(
+                &mtx_cfg.host,
+                mtx_cfg.api_port,
+                mtx_cfg.whep_port,
+            ));
+            (api, "mediamtx")
+        }
+    };
+
+    log::info!("Media server: {media_server_label}");
 
     let media_bridge = MediaBridge {
-        api: go2rtc_api.clone(),
+        api: media_api,
         slot_map: Arc::new(RwLock::new(HashMap::new())),
         stream_names: Arc::new(RwLock::new(HashMap::new())),
     };
@@ -66,19 +85,6 @@ pub fn start_onvif_bridge(
         static_cameras: cfg.onvif.static_cameras.clone(),
     };
 
-    let go2rtc_mode = match cfg.go2rtc.mode {
-        config::Go2RtcMode::External => Go2RtcMode::External,
-        config::Go2RtcMode::Local => Go2RtcMode::Local,
-    };
-
-    let go2rtc_manager = Go2RtcManager::new(
-        &cfg.go2rtc.host,
-        cfg.go2rtc.api_port,
-        cfg.go2rtc.webrtc_port,
-        go2rtc_mode,
-        &cfg.go2rtc.path,
-    );
-
     let states = camera_states.to_vec();
     let occupancy_datavers = occupancy_datavers.to_vec();
     let registry_clone = registry.clone();
@@ -87,6 +93,7 @@ pub fn start_onvif_bridge(
     let onvif_password = cfg.onvif.password.clone();
     let camera_names = cfg.onvif.camera_names.clone();
     let storage_dir = std::path::PathBuf::from(&cfg.matter.storage_path);
+    let media_cfg = cfg.media.clone();
 
     std::thread::Builder::new()
         .name("onvif-media-bridge".into())
@@ -99,16 +106,36 @@ pub fn start_onvif_bridge(
             rt.block_on(async move {
                 log::info!("ONVIF/media bridge thread started");
 
-                // 1. Start go2rtc
-                if let Err(e) = go2rtc_manager.start().await {
-                    log::error!("Failed to start go2rtc: {e}");
-                    // Continue anyway — go2rtc may come up later
+                // 1. Start media server (go2rtc or MediaMTX)
+                let start_result = match media_cfg {
+                    MediaConfig::Go2Rtc(ref c) => {
+                        let mode = match c.mode {
+                            config::Go2RtcMode::External => Go2RtcMode::External,
+                            config::Go2RtcMode::Local => Go2RtcMode::Local,
+                        };
+                        Go2RtcManager::new(&c.host, c.api_port, c.webrtc_port, mode, &c.path)
+                            .start()
+                            .await
+                    }
+                    MediaConfig::MediaMtx(ref c) => {
+                        let mode = match c.mode {
+                            config::MediaMtxMode::External => MediaMtxMode::External,
+                            config::MediaMtxMode::Local => MediaMtxMode::Local,
+                        };
+                        MediaMtxManager::new(&c.host, c.api_port, c.whep_port, mode, &c.path)
+                            .start()
+                            .await
+                    }
+                };
+                if let Err(e) = start_result {
+                    log::error!("Failed to start media server: {e}");
+                    // Continue anyway — the media server may come up later
                 }
 
-                log::info!("go2rtc started, launching stream manager and ONVIF discovery");
+                log::info!("Media server started, launching stream manager and ONVIF discovery");
 
-                // 2. Spawn stream manager (registers RTSP streams in go2rtc)
-                let api_for_streams = go2rtc_api.clone();
+                // 2. Spawn stream manager (registers RTSP streams in the media server)
+                let api_for_streams = bridge_clone.api.clone();
                 let registry_for_streams = registry_clone.clone();
                 let stream_user = onvif_username.clone();
                 let stream_pass = onvif_password.clone();

@@ -4,9 +4,16 @@ use std::env;
 #[derive(Debug, Clone)]
 pub struct Config {
     pub onvif: OnvifConfig,
-    pub go2rtc: Go2RtcConfig,
+    pub media: MediaConfig,
     pub matter: MatterConfig,
     pub log_level: String,
+}
+
+/// Which media server handles RTSP→WebRTC bridging.
+#[derive(Debug, Clone)]
+pub enum MediaConfig {
+    Go2Rtc(Go2RtcConfig),
+    MediaMtx(MediaMtxConfig),
 }
 
 #[derive(Debug, Clone)]
@@ -44,6 +51,21 @@ pub enum Go2RtcMode {
 }
 
 #[derive(Debug, Clone)]
+pub struct MediaMtxConfig {
+    pub mode: MediaMtxMode,
+    pub path: String,
+    pub host: String,
+    pub api_port: u16,
+    pub whep_port: u16,
+}
+
+#[derive(Debug, Clone)]
+pub enum MediaMtxMode {
+    Local,
+    External,
+}
+
+#[derive(Debug, Clone)]
 pub struct MatterConfig {
     pub port: u16,
     pub passcode: u32,
@@ -62,13 +84,13 @@ impl Default for Config {
                 static_cameras: Vec::new(),
                 camera_names: HashMap::new(),
             },
-            go2rtc: Go2RtcConfig {
+            media: MediaConfig::Go2Rtc(Go2RtcConfig {
                 mode: Go2RtcMode::External,
                 path: "./bin/go2rtc".into(),
                 host: "localhost".into(),
                 api_port: 1984,
                 webrtc_port: 8555,
-            },
+            }),
             matter: MatterConfig {
                 port: 5540,
                 passcode: 20202021,
@@ -114,13 +136,67 @@ impl Config {
             _ => DiscoveryMode::Auto,
         };
 
-        let go2rtc_mode = match env::var("GO2RTC_MODE")
+        // Determine which media server to use
+        let media_server_str = env::var("MEDIA_SERVER")
             .unwrap_or_default()
-            .to_lowercase()
-            .as_str()
-        {
-            "local" => Go2RtcMode::Local,
-            _ => Go2RtcMode::External,
+            .to_lowercase();
+
+        let media = if media_server_str == "mediamtx" {
+            let default_mtx = MediaMtxConfig {
+                mode: MediaMtxMode::External,
+                path: "./bin/mediamtx".into(),
+                host: "localhost".into(),
+                api_port: 9997,
+                whep_port: 8889,
+            };
+            let mode = match env::var("MEDIAMTX_MODE")
+                .unwrap_or_default()
+                .to_lowercase()
+                .as_str()
+            {
+                "local" => MediaMtxMode::Local,
+                _ => MediaMtxMode::External,
+            };
+            MediaConfig::MediaMtx(MediaMtxConfig {
+                mode,
+                path: env::var("MEDIAMTX_PATH").unwrap_or(default_mtx.path),
+                host: env::var("MEDIAMTX_HOST").unwrap_or(default_mtx.host),
+                api_port: env::var("MEDIAMTX_API_PORT")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(default_mtx.api_port),
+                whep_port: env::var("MEDIAMTX_WHEP_PORT")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(default_mtx.whep_port),
+            })
+        } else {
+            // Default: go2rtc
+            let default_go2rtc = match defaults.media {
+                MediaConfig::Go2Rtc(ref c) => c.clone(),
+                MediaConfig::MediaMtx(_) => unreachable!(),
+            };
+            let go2rtc_mode = match env::var("GO2RTC_MODE")
+                .unwrap_or_default()
+                .to_lowercase()
+                .as_str()
+            {
+                "local" => Go2RtcMode::Local,
+                _ => Go2RtcMode::External,
+            };
+            MediaConfig::Go2Rtc(Go2RtcConfig {
+                mode: go2rtc_mode,
+                path: env::var("GO2RTC_PATH").unwrap_or(default_go2rtc.path),
+                host: env::var("GO2RTC_HOST").unwrap_or(default_go2rtc.host),
+                api_port: env::var("GO2RTC_API_PORT")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(default_go2rtc.api_port),
+                webrtc_port: env::var("GO2RTC_WEBRTC_PORT")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(default_go2rtc.webrtc_port),
+            })
         };
 
         Self {
@@ -135,19 +211,7 @@ impl Config {
                 static_cameras,
                 camera_names,
             },
-            go2rtc: Go2RtcConfig {
-                mode: go2rtc_mode,
-                path: env::var("GO2RTC_PATH").unwrap_or(defaults.go2rtc.path),
-                host: env::var("GO2RTC_HOST").unwrap_or(defaults.go2rtc.host),
-                api_port: env::var("GO2RTC_API_PORT")
-                    .ok()
-                    .and_then(|v| v.parse().ok())
-                    .unwrap_or(defaults.go2rtc.api_port),
-                webrtc_port: env::var("GO2RTC_WEBRTC_PORT")
-                    .ok()
-                    .and_then(|v| v.parse().ok())
-                    .unwrap_or(defaults.go2rtc.webrtc_port),
-            },
+            media,
             matter: MatterConfig {
                 port: env::var("MATTER_PORT")
                     .ok()

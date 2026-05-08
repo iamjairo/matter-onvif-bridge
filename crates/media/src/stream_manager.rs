@@ -1,17 +1,17 @@
-//! Stream manager — syncs camera registry with go2rtc stream registration.
+//! Stream manager — syncs camera registry with media-server stream registration.
 //!
 //! Listens for camera Added/Removed events and registers/deregisters
-//! RTSP streams in go2rtc accordingly.
+//! RTSP streams in the active media server (go2rtc or MediaMTX).
 
 use onvif_client::registry::{CameraRegistry, RegistryEvent};
 use tracing::{error, info};
 
-use crate::go2rtc_api::Go2RtcApi;
+use crate::media_api::AnyMediaApi;
 
 /// Run the stream manager loop, listening for registry events.
 pub async fn run_stream_manager(
     registry: &CameraRegistry,
-    api: Go2RtcApi,
+    api: AnyMediaApi,
     onvif_username: &str,
     onvif_password: &str,
 ) {
