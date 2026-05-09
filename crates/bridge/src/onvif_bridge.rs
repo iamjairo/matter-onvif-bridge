@@ -260,12 +260,14 @@ pub fn start_onvif_bridge(
                                             let handle = spawn_motion_pump(
                                                 pump_cfg,
                                                 move |motion| {
-                                                    if let Ok(mut s) = state_for_pump.write()
-                                                        && s.motion_detected != motion
-                                                    {
-                                                        s.motion_detected = motion;
-                                                        dataver_for_pump.bump();
+                                                    let Ok(mut s) = state_for_pump.write() else {
+                                                        return;
+                                                    };
+                                                    if s.motion_detected == motion {
+                                                        return;
                                                     }
+                                                    s.motion_detected = motion;
+                                                    dataver_for_pump.bump();
                                                 },
                                             );
                                             motion_tasks.insert(slot, handle);

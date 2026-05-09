@@ -45,17 +45,15 @@ impl CameraRegistry {
     /// Add or update a camera in the registry.
     pub fn add_camera(&self, camera: CameraDevice) {
         let mut cameras = self.cameras.write().unwrap();
-        let id = camera.id.clone();
-
-        match cameras.entry(id.clone()) {
+        match cameras.entry(camera.id.clone()) {
             Entry::Occupied(mut entry) => {
-                info!(camera_id = id, "Camera updated in registry");
+                info!(camera_id = entry.key(), "Camera updated in registry");
                 entry.insert(camera.clone());
                 let _ = self.tx.send(RegistryEvent::Updated(camera));
             }
             Entry::Vacant(entry) => {
                 info!(
-                    camera_id = id,
+                    camera_id = entry.key(),
                     manufacturer = camera.device_info.manufacturer,
                     model = camera.device_info.model,
                     "Camera added to registry"
