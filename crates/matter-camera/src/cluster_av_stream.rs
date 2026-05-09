@@ -812,10 +812,7 @@ fn parse_resolution_struct(
 }
 
 fn parse_nullable_u16(elem: rs_matter::tlv::TLVElement<'_>) -> Result<Option<u16>, Error> {
-    if elem.is_empty() {
-        return Ok(None);
-    }
-    if elem.null().is_ok() {
+    if elem.is_empty() || elem.null().is_ok() {
         return Ok(None);
     }
 
