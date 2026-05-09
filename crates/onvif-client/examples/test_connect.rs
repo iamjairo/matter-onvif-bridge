@@ -10,8 +10,7 @@ use std::time::Duration;
 #[tokio::main]
 async fn main() {
     // CARGO_MANIFEST_DIR = crates/onvif-client, .env is at repo root
-    let env_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../.env");
+    let env_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.env");
     match dotenvy::from_path(&env_path) {
         Ok(_) => println!("Loaded {}", env_path.display()),
         Err(e) => println!("Warning: could not load {}: {e}", env_path.display()),
@@ -36,7 +35,11 @@ async fn main() {
     let mut seen = std::collections::HashSet::new();
 
     // Static cameras first (higher priority)
-    for entry in static_cameras.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+    for entry in static_cameras
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         let parts: Vec<&str> = entry.splitn(2, ':').collect();
         let host = parts[0].to_string();
         let port: u16 = parts.get(1).and_then(|p| p.parse().ok()).unwrap_or(80);
@@ -59,7 +62,9 @@ async fn main() {
     }
 
     if cameras.is_empty() {
-        println!("No cameras found. Set ONVIF_STATIC_CAMERAS in .env or ensure cameras are on the network.");
+        println!(
+            "No cameras found. Set ONVIF_STATIC_CAMERAS in .env or ensure cameras are on the network."
+        );
         return;
     }
 
@@ -73,11 +78,17 @@ async fn main() {
         match onvif_client::client::connect_camera(host, *port, &username, &password).await {
             Ok(cam) => {
                 ok += 1;
-                println!("{} {} ({})", cam.device_info.manufacturer, cam.device_info.model, cam.id);
+                println!(
+                    "{} {} ({})",
+                    cam.device_info.manufacturer, cam.device_info.model, cam.id
+                );
                 for p in &cam.profiles {
                     print!("  {} ({})", p.name, p.token);
                     if let Some(ve) = &p.video_encoder {
-                        print!(" {}x{}@{}fps {}kbps {}", ve.width, ve.height, ve.frame_rate, ve.bitrate, ve.codec);
+                        print!(
+                            " {}x{}@{}fps {}kbps {}",
+                            ve.width, ve.height, ve.frame_rate, ve.bitrate, ve.codec
+                        );
                     }
                     println!();
                 }

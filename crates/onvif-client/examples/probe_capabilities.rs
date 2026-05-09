@@ -22,7 +22,11 @@ async fn main() {
 
     // Build camera list from static config
     let mut cameras: Vec<(String, u16)> = Vec::new();
-    for entry in static_cameras.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+    for entry in static_cameras
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         let parts: Vec<&str> = entry.splitn(2, ':').collect();
         let host = parts[0].to_string();
         let port: u16 = parts.get(1).and_then(|p| p.parse().ok()).unwrap_or(80);

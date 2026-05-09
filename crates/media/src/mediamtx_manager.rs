@@ -73,10 +73,7 @@ impl MediaMtxManager {
             }
 
             if start.elapsed() > timeout {
-                return Err(format!(
-                    "MediaMTX not ready after {}s",
-                    timeout.as_secs()
-                ));
+                return Err(format!("MediaMTX not ready after {}s", timeout.as_secs()));
             }
 
             sleep(Duration::from_millis(500)).await;
@@ -108,16 +105,14 @@ impl MediaMtxManager {
                     .spawn();
 
                 match result {
-                    Ok(mut child) => {
-                        match child.wait().await {
-                            Ok(status) => {
-                                warn!(exit_code = ?status.code(), "MediaMTX exited, restarting in 3s...");
-                            }
-                            Err(e) => {
-                                error!("MediaMTX process error: {e}");
-                            }
+                    Ok(mut child) => match child.wait().await {
+                        Ok(status) => {
+                            warn!(exit_code = ?status.code(), "MediaMTX exited, restarting in 3s...");
                         }
-                    }
+                        Err(e) => {
+                            error!("MediaMTX process error: {e}");
+                        }
+                    },
                     Err(e) => {
                         error!("Failed to spawn MediaMTX: {e}");
                     }

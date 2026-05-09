@@ -6,6 +6,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let c = OnvifClient::new(&url).with_credentials(&args[3], &args[4]);
     let dt = c.get_system_date_and_time().await?;
     let c = c.with_utc_offset(dt.utc_offset_secs());
-    for s in c.get_scopes().await? { println!("{}", s); }
+    for s in c.get_scopes().await? {
+        println!("{}", s);
+    }
     Ok(())
 }

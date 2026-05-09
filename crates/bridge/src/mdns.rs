@@ -4,12 +4,9 @@
 
 use rs_matter::error::Error;
 use rs_matter::transport::network::mdns::zeroconf::ZeroconfMdnsResponder;
-use rs_matter::{crypto::Crypto, Matter};
+use rs_matter::{Matter, crypto::Crypto};
 
-pub async fn run_mdns<C: Crypto>(
-    matter: &Matter<'_>,
-    _crypto: C,
-) -> Result<(), Error> {
+pub async fn run_mdns<C: Crypto>(matter: &Matter<'_>, _crypto: C) -> Result<(), Error> {
     log::info!("Starting mDNS via system service (zeroconf/avahi)");
     ZeroconfMdnsResponder::new(matter).run().await
 }
