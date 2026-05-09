@@ -126,7 +126,7 @@ fn main() -> Result<(), Error> {
 
     let buffers = PooledBuffers::<10, _>::new(0);
     let subscriptions: Subscriptions = Subscriptions::new();
-    let crypto = default_crypto(rand::thread_rng(), DAC_PRIVKEY);
+    let crypto = default_crypto(rand::rng(), DAC_PRIVKEY);
     let mut rand = crypto.rand()?;
     let mut events: Events = Events::new_default();
 
