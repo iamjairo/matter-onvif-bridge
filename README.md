@@ -4,7 +4,7 @@
 [![Rust](https://img.shields.io/badge/rust-2024_edition-orange.svg)](https://www.rust-lang.org/)
 [![Matter](https://img.shields.io/badge/Matter-1.5-brightgreen.svg)](https://csa-iot.org/developer-resource/specifications-download-request/)
 
-A Rust bridge that discovers ONVIF IP cameras on your LAN and exposes them as native **Matter 1.5** camera devices. Compatible with Google Home, Apple Home, and any Matter-compliant controller.
+A Rust bridge that discovers ONVIF IP cameras on your LAN and exposes them as native **Matter 1.5** camera devices. Tested with **Google Home** and **Apple Home**; other Matter 1.5 controllers that support the camera device type should work, but interoperability has not been validated.
 
 Uses [rs-matter](https://github.com/project-chip/rs-matter) for the Matter protocol stack, [oxvif](https://github.com/smiti1642/oxvif) for ONVIF discovery and control, and either [go2rtc](https://github.com/AlexxIT/go2rtc) or [MediaMTX](https://github.com/bluenviron/mediamtx) for RTSP-to-WebRTC media bridging.
 
@@ -444,7 +444,7 @@ SetupQRCode: [MT:-24J0AFN00KA064IJ3P0...]
 PairingCode:  3497-0112-332
 ```
 
-Commission with any Matter 1.5-capable controller:
+Commission with a Matter 1.5-capable controller that supports the camera device type:
 
 | Controller | Steps |
 |------------|-------|
@@ -516,6 +516,17 @@ bash scripts/reset-device.sh
 3. Bridge calls go2rtc's SDP API (or MediaMTX's WHEP endpoint) and gets an SDP answer
 4. Bridge returns the SDP answer to the controller via `ProvideOfferResponse`
 5. ICE/DTLS negotiation completes directly between controller and media server
+
+**WebRTC command support level:**
+
+| Command | Behavior |
+|---------|----------|
+| `ProvideOffer` | ✅ Fully handled — SDP offer/answer exchanged via go2rtc or MediaMTX |
+| `ProvideOfferResponse` | ✅ Returned synchronously |
+| `SolicitOffer` | ⚠️ Returns `SolicitOfferResponse` with `deferredOffer=true` — device-initiated WebRTC is not supported; controllers should use `ProvideOffer` |
+| `ProvideAnswer` | ⚠️ Accepted but not applied — only reached if a controller sends it after SolicitOffer; no device-initiated SDP offer is ever sent |
+| `ProvideICECandidates` | ⚠️ Accepted and ignored — ICE is handled end-to-end by the media server |
+| `EndSession` | ✅ Session removed from `CurrentSessions` |
 
 ---
 

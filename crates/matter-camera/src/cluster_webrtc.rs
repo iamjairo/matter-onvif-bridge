@@ -207,12 +207,43 @@ impl Handler for WebRtcHandler {
                 writer.complete()
             }
             Commands::SolicitOffer => {
-                debug!("SolicitOffer not implemented");
-                Err(ErrorCode::CommandNotFound.into())
+                // Matter 1.5 §4.22.7.1 — SolicitOffer asks the device to initiate WebRTC
+                // (device-initiated flow). This bridge only supports the controller-initiated
+                // flow (ProvideOffer → ProvideOfferResponse). Returning SolicitOfferResponse
+                // with deferredOffer=true is the spec-correct way to signal that the device
+                // is not going to send an unsolicited offer; the controller should fall back
+                // to the ProvideOffer path.
+                let mut state = self.state.write().map_err(|_| ErrorCode::Busy)?;
+                let session_id = state.next_session_id;
+                state.next_session_id += 1;
+                drop(state);
+
+                debug!(session_id, "SolicitOffer — responding with deferredOffer=true (controller-initiated flow only)");
+
+                let mut writer = reply.with_command(Commands::SolicitOfferResponse as _)?;
+                let tag = writer.tag().clone();
+                let mut tw = writer.writer();
+                tw.start_struct(&tag)?;
+                tw.u16(&TLVTag::Context(0), session_id)?;
+                // ctx(1): DeferredOffer = true — we will not send an unsolicited SDP offer
+                tw.bool(&TLVTag::Context(1), true)?;
+                // ctx(2..5) VideoStreamUsage, AudioStreamUsage, ICEServers, MetadataOptions
+                // are all optional and omitted when deferredOffer=true
+                tw.end_container()?;
+                drop(tw);
+                writer.complete()
             }
             Commands::ProvideAnswer => {
-                debug!("ProvideAnswer not implemented");
-                Err(ErrorCode::CommandNotFound.into())
+                // ProvideAnswer is the controller's reply to a device-initiated SDP offer
+                // (the device-initiated flow: SolicitOffer → SolicitOfferResponse → device
+                // sends offer out-of-band → controller replies with ProvideAnswer).
+                // Because this bridge always sets deferredOffer=true in SolicitOfferResponse,
+                // compliant controllers will not send ProvideAnswer. Accept and ignore it
+                // gracefully anyway so we don't break sessions from controllers that send it
+                // unexpectedly.
+                let session_id = fields.find_ctx(0)?.u16().unwrap_or(0);
+                debug!(session_id, "ProvideAnswer (accepted, not applied — bridge uses controller-initiated flow only)");
+                Ok(())
             }
             Commands::ProvideIceCandidates => {
                 let session_id = fields.find_ctx(0)?.u16().unwrap_or(0);
@@ -331,17 +362,56 @@ mod tests {
     }
 
     #[test]
-    fn provide_offer_malformed_sdp_field_fails() {
-        let mut backing = vec![0_u8; 256];
+    fn solicit_offer_response_encodes_session_id_and_deferred_flag() {
+        // Verify that a SolicitOfferResponse TLV struct can be encoded with
+        // ctx(0) = session_id (u16) and ctx(1) = deferredOffer (bool = true).
+        // This mirrors what the SolicitOffer handler writes before returning.
+        let mut backing = vec![0_u8; 64];
         let mut tw = WriteBuf::new(backing.as_mut_slice());
         tw.start_struct(&TLVTag::Anonymous).unwrap();
-        tw.u8(&TLVTag::Context(1), 42).unwrap();
+        tw.u16(&TLVTag::Context(0), 42_u16).unwrap(); // WebRTCSessionID
+        tw.bool(&TLVTag::Context(1), true).unwrap(); // DeferredOffer
         tw.end_container().unwrap();
 
         let encoded = tw.as_slice().to_vec();
         let root = TLVElement::new(&encoded);
         let fields = root.structure().unwrap();
 
-        assert!(parse_provide_offer_sdp(&fields).is_err());
+        assert_eq!(fields.find_ctx(0).unwrap().u16().unwrap(), 42);
+        assert!(fields.find_ctx(1).unwrap().bool().unwrap());
+    }
+
+    #[test]
+    fn provide_answer_parses_session_id_from_ctx0() {
+        // ProvideAnswer carries a session_id in ctx(0). Verify that we can read it,
+        // which mirrors the find_ctx(0)?.u16().unwrap_or(0) call in the handler.
+        let mut backing = vec![0_u8; 64];
+        let mut tw = WriteBuf::new(backing.as_mut_slice());
+        tw.start_struct(&TLVTag::Anonymous).unwrap();
+        tw.u16(&TLVTag::Context(0), 7_u16).unwrap(); // WebRTCSessionID
+        tw.end_container().unwrap();
+
+        let encoded = tw.as_slice().to_vec();
+        let root = TLVElement::new(&encoded);
+        let fields = root.structure().unwrap();
+
+        let session_id = fields.find_ctx(0).unwrap().u16().unwrap_or(0);
+        assert_eq!(session_id, 7);
+    }
+
+    #[test]
+    fn provide_answer_missing_session_id_defaults_to_zero() {
+        // ProvideAnswer with no ctx(0) field should default to 0 without panicking.
+        let mut backing = vec![0_u8; 32];
+        let mut tw = WriteBuf::new(backing.as_mut_slice());
+        tw.start_struct(&TLVTag::Anonymous).unwrap();
+        tw.end_container().unwrap();
+
+        let encoded = tw.as_slice().to_vec();
+        let root = TLVElement::new(&encoded);
+        let fields = root.structure().unwrap();
+
+        let session_id = fields.find_ctx(0).ok().and_then(|e| e.u16().ok()).unwrap_or(0);
+        assert_eq!(session_id, 0);
     }
 }

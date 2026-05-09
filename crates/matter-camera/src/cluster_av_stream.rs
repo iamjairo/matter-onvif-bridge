@@ -443,7 +443,12 @@ impl Handler for AvStreamHandler {
                 Ok(())
             }
             Commands::CaptureSnapshot => {
-                debug!("CaptureSnapshot not implemented");
+                // CaptureSnapshot is not implemented: this bridge does not call the ONVIF
+                // GetSnapshotUri / HTTP-fetch pipeline. The CaptureSnapshotResponse payload
+                // would carry binary JPEG data in a TLV octet-string field (Matter 1.5
+                // §4.20.9.14), but since no snapshot is fetched, nothing is encoded here.
+                // Controllers that require snapshots must use the media-server stream path.
+                debug!("CaptureSnapshot not supported (no ONVIF snapshot pipeline)");
                 Err(ErrorCode::CommandNotFound.into())
             }
             Commands::VideoStreamAllocateResponse
