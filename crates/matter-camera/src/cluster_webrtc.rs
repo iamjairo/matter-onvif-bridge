@@ -239,7 +239,7 @@ impl Handler for WebRtcHandler {
 
 impl NonBlockingHandler for WebRtcHandler {}
 
-fn parse_provide_offer_sdp<'a>(fields: &rs_matter::tlv::TLVElement<'a>) -> Result<&'a str, Error> {
+fn parse_provide_offer_sdp<'a>(fields: &rs_matter::tlv::TLVSequence<'a>) -> Result<&'a str, Error> {
     let sdp = fields
         .find_ctx(1)?
         .utf8()
@@ -253,7 +253,7 @@ fn parse_provide_offer_sdp<'a>(fields: &rs_matter::tlv::TLVElement<'a>) -> Resul
 }
 
 fn provide_offer_stream_usage(
-    _fields: &rs_matter::tlv::TLVElement<'_>,
+    _fields: &rs_matter::tlv::TLVSequence<'_>,
 ) -> crate::types::StreamUsage {
     // StreamUsage is not a ProvideOffer field in Matter 1.5. Always default to LiveView.
     crate::types::StreamUsage::LiveView

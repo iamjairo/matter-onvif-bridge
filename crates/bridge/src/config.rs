@@ -270,16 +270,16 @@ mod tests {
     fn restore_env(snapshot: &[(String, Option<String>)]) {
         for (key, value) in snapshot {
             if let Some(value) = value {
-                std::env::set_var(key, value);
+                unsafe { std::env::set_var(key, value) };
             } else {
-                std::env::remove_var(key);
+                unsafe { std::env::remove_var(key) };
             }
         }
     }
 
     fn clear_media_env() {
         for key in media_env_vars() {
-            std::env::remove_var(key);
+            unsafe { std::env::remove_var(key) };
         }
     }
 
@@ -300,7 +300,7 @@ mod tests {
         let _guard = env_lock().lock().unwrap();
         let snapshot = snapshot_env();
         clear_media_env();
-        std::env::set_var("MEDIA_SERVER", "mediamtx");
+        unsafe { std::env::set_var("MEDIA_SERVER", "mediamtx") };
 
         let cfg = Config::from_env();
         assert!(matches!(cfg.media, MediaConfig::MediaMtx(_)));
@@ -313,8 +313,8 @@ mod tests {
         let _guard = env_lock().lock().unwrap();
         let snapshot = snapshot_env();
         clear_media_env();
-        std::env::set_var("MEDIA_SERVER", "mediamtx");
-        std::env::set_var("MEDIAMTX_MODE", "local");
+        unsafe { std::env::set_var("MEDIA_SERVER", "mediamtx") };
+        unsafe { std::env::set_var("MEDIAMTX_MODE", "local") };
 
         let local_cfg = Config::from_env();
         match local_cfg.media {
@@ -322,7 +322,7 @@ mod tests {
             _ => panic!("expected MediaMtx config"),
         }
 
-        std::env::set_var("MEDIAMTX_MODE", "external");
+        unsafe { std::env::set_var("MEDIAMTX_MODE", "external") };
         let external_cfg = Config::from_env();
         match external_cfg.media {
             MediaConfig::MediaMtx(cfg) => assert!(matches!(cfg.mode, MediaMtxMode::External)),
@@ -337,9 +337,9 @@ mod tests {
         let _guard = env_lock().lock().unwrap();
         let snapshot = snapshot_env();
         clear_media_env();
-        std::env::set_var("MEDIA_SERVER", "mediamtx");
-        std::env::set_var("MEDIAMTX_API_PORT", "not-a-port");
-        std::env::set_var("MEDIAMTX_WHEP_PORT", "-1");
+        unsafe { std::env::set_var("MEDIA_SERVER", "mediamtx") };
+        unsafe { std::env::set_var("MEDIAMTX_API_PORT", "not-a-port") };
+        unsafe { std::env::set_var("MEDIAMTX_WHEP_PORT", "-1") };
 
         let cfg = Config::from_env();
         match cfg.media {
