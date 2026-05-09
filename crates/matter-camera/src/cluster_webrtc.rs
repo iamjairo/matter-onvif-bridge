@@ -150,7 +150,7 @@ impl Handler for WebRtcHandler {
                 // Matter 1.5 ProvideOffer fields:
                 //   ctx(0)  WebRTCSessionID — nullable u16 for session resumption (ignored here)
                 //   ctx(1)  SDP — the offer string
-                //   ctx(2)  ICEServers — optional list (not read; go2rtc/MediaMTX handles STUN)
+                //   ctx(2)  ICEServers — optional list (not read; the media server handles STUN/TURN)
                 //   ctx(3)  ICETransportPolicy — optional enum8 (not read)
                 //   ctx(4)  MetadataOptions — optional bitmap8 (not read)
                 let sdp_offer = parse_provide_offer_sdp(&fields)?;

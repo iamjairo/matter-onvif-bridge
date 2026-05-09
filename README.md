@@ -519,6 +519,8 @@ bash scripts/reset-device.sh
 
 **WebRTC command support level:**
 
+This bridge implements the **controller-initiated** WebRTC flow only. Device-initiated flows are signaled as unsupported per Matter 1.5 §4.22.7.1 (`deferredOffer=true`).
+
 | Command | Behavior |
 |---------|----------|
 | `ProvideOffer` | ✅ Fully handled — SDP offer/answer exchanged via go2rtc or MediaMTX |
