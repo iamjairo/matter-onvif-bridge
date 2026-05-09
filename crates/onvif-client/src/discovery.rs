@@ -22,7 +22,7 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 /// Events emitted by the discovery loop.
 #[derive(Debug, Clone)]
 pub enum DiscoveryEvent {
-    CameraFound(CameraDevice),
+    CameraFound(Box<CameraDevice>),
     CameraLost(String),
     CameraUnreachable(String),
     Error(String),
@@ -92,7 +92,7 @@ async fn scan_static_only(config: &DiscoveryConfig, tx: &mpsc::Sender<DiscoveryE
         {
             Ok(camera) => {
                 connected += 1;
-                let _ = tx.send(DiscoveryEvent::CameraFound(camera)).await;
+                let _ = tx.send(DiscoveryEvent::CameraFound(Box::new(camera))).await;
             }
             Err(e) => {
                 error!(
@@ -163,7 +163,7 @@ async fn scan_once(
                 missed_scans.remove(&camera.id);
 
                 if !discovered.contains_key(&camera.id) {
-                    let _ = tx.send(DiscoveryEvent::CameraFound(camera.clone())).await;
+                    let _ = tx.send(DiscoveryEvent::CameraFound(Box::new(camera.clone()))).await;
                 }
                 discovered.insert(camera.id.clone(), camera);
             }
