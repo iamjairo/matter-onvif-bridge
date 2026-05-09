@@ -17,3 +17,5 @@ node_modules/
 dist/
 *.tgz
 package-lock.json
+.matter-storage*.json
+.env
