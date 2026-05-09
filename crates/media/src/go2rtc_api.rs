@@ -40,6 +40,12 @@ impl Go2RtcApi {
 
     /// Register an RTSP stream source in go2rtc.
     /// go2rtc 1.9+ expects the source URL as a `src` query parameter.
+    ///
+    /// go2rtc attempts to persist the stream to its config file on every PUT.
+    /// When the config file is mounted read-only (the recommended setup), go2rtc
+    /// returns 400 but **still registers the stream in memory**.  We detect this
+    /// case by confirming the stream exists in the API after the 400 and treat it
+    /// as a warning rather than a hard error.
     pub async fn add_stream(&self, name: &str, rtsp_url: &str) -> Result<(), String> {
         let url = format!(
             "{}/api/streams?name={}&src={}",
@@ -58,6 +64,17 @@ impl Go2RtcApi {
             .map_err(|e| format!("PUT /api/streams failed: {e}"))?;
 
         if !resp.status().is_success() {
+            // go2rtc returns 400 when it cannot persist the stream to the config
+            // file (e.g. the file is mounted read-only), but it still registers
+            // the stream in memory.  Confirm the stream is actually there before
+            // surfacing an error.
+            if resp.status().as_u16() == 400 && self.stream_matches(name, rtsp_url).await {
+                debug!(
+                    name,
+                    "go2rtc returned 400 (config file is read-only) but stream is registered in memory"
+                );
+                return Ok(());
+            }
             return Err(format!("PUT /api/streams returned {}", resp.status()));
         }
 
