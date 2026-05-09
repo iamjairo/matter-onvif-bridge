@@ -7,6 +7,8 @@ set -euo pipefail
 INSTALL_DIR="${1:-/opt/matter-onvif-bridge}"
 SERVICE_USER="${2:-${SUDO_USER:-$(whoami)}}"
 SERVICE_NAME="matter-onvif-bridge"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 echo "=== Matter-ONVIF Bridge Pi Setup ==="
 echo "Install dir: $INSTALL_DIR"
@@ -17,13 +19,30 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
+mkdir -p "$INSTALL_DIR"
+
 # Install go2rtc
 echo "Installing go2rtc..."
-bash "$INSTALL_DIR/scripts/install-go2rtc.sh"
+if [ -f "$SCRIPT_DIR/install-go2rtc.sh" ]; then
+  bash "$SCRIPT_DIR/install-go2rtc.sh" "1.9.7" "$INSTALL_DIR/bin"
+elif [ -f "$INSTALL_DIR/scripts/install-go2rtc.sh" ]; then
+  bash "$INSTALL_DIR/scripts/install-go2rtc.sh" "1.9.7" "$INSTALL_DIR/bin"
+else
+  echo "Could not find install-go2rtc.sh in $SCRIPT_DIR or $INSTALL_DIR/scripts"
+  exit 1
+fi
 
 # Create .env if it doesn't exist
 if [ ! -f "$INSTALL_DIR/.env" ]; then
-  cp "$INSTALL_DIR/.env.example" "$INSTALL_DIR/.env"
+  if [ -f "$INSTALL_DIR/.env.example" ]; then
+    cp "$INSTALL_DIR/.env.example" "$INSTALL_DIR/.env"
+  elif [ -f "$REPO_ROOT/.env.example" ]; then
+    cp "$REPO_ROOT/.env.example" "$INSTALL_DIR/.env.example"
+    cp "$REPO_ROOT/.env.example" "$INSTALL_DIR/.env"
+  else
+    echo "Could not find .env.example in $INSTALL_DIR or $REPO_ROOT"
+    exit 1
+  fi
   echo "Created .env from .env.example — edit it with your ONVIF credentials"
 fi
 
@@ -44,6 +63,7 @@ WorkingDirectory=$INSTALL_DIR
 ExecStart=$INSTALL_DIR/matter-onvif-bridge
 Restart=always
 RestartSec=5
+EnvironmentFile=$INSTALL_DIR/.env
 Environment=RUST_LOG=info
 
 [Install]

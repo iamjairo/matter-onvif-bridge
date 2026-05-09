@@ -58,10 +58,7 @@ impl Go2RtcApi {
             .map_err(|e| format!("PUT /api/streams failed: {e}"))?;
 
         if !resp.status().is_success() {
-            return Err(format!(
-                "PUT /api/streams returned {}",
-                resp.status()
-            ));
+            return Err(format!("PUT /api/streams returned {}", resp.status()));
         }
 
         Ok(())
@@ -69,7 +66,11 @@ impl Go2RtcApi {
 
     /// Unregister a stream from go2rtc. Tolerates 404 (stream not found).
     pub async fn remove_stream(&self, name: &str) -> Result<(), String> {
-        let url = format!("{}/api/streams?name={}", self.base_url, urlencoding::encode(name));
+        let url = format!(
+            "{}/api/streams?name={}",
+            self.base_url,
+            urlencoding::encode(name)
+        );
 
         debug!(name, "Removing stream from go2rtc");
 
@@ -81,10 +82,7 @@ impl Go2RtcApi {
             .map_err(|e| format!("DELETE /api/streams failed: {e}"))?;
 
         if !resp.status().is_success() && resp.status().as_u16() != 404 {
-            return Err(format!(
-                "DELETE /api/streams returned {}",
-                resp.status()
-            ));
+            return Err(format!("DELETE /api/streams returned {}", resp.status()));
         }
 
         Ok(())
@@ -98,7 +96,11 @@ impl Go2RtcApi {
             urlencoding::encode(stream_name)
         );
 
-        debug!(stream_name, sdp_offer_len = sdp_offer.len(), "Exchanging SDP with go2rtc");
+        debug!(
+            stream_name,
+            sdp_offer_len = sdp_offer.len(),
+            "Exchanging SDP with go2rtc"
+        );
 
         let resp = self
             .client
@@ -110,10 +112,7 @@ impl Go2RtcApi {
             .map_err(|e| format!("POST /api/webrtc failed: {e}"))?;
 
         if !resp.status().is_success() {
-            return Err(format!(
-                "POST /api/webrtc returned {}",
-                resp.status()
-            ));
+            return Err(format!("POST /api/webrtc returned {}", resp.status()));
         }
 
         let sdp_answer = resp
@@ -128,6 +127,33 @@ impl Go2RtcApi {
         );
 
         Ok(sdp_answer)
+    }
+
+    /// Capture a JPEG snapshot for a stream via go2rtc.
+    pub async fn snapshot_jpeg(&self, stream_name: &str) -> Result<Vec<u8>, String> {
+        let url = format!(
+            "{}/api/frame.jpeg?src={}",
+            self.base_url,
+            urlencoding::encode(stream_name)
+        );
+
+        debug!(stream_name, "Capturing JPEG snapshot via go2rtc");
+
+        let resp = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| format!("GET /api/frame.jpeg failed: {e}"))?;
+
+        if !resp.status().is_success() {
+            return Err(format!("GET /api/frame.jpeg returned {}", resp.status()));
+        }
+
+        resp.bytes()
+            .await
+            .map(|bytes| bytes.to_vec())
+            .map_err(|e| format!("Failed to read JPEG snapshot body: {e}"))
     }
 
     /// Return true if go2rtc already has a stream named `name` whose first
@@ -167,4 +193,64 @@ pub fn extract_ice_candidates(sdp: &str) -> Vec<String> {
         .filter(|line| line.starts_with("a=candidate:"))
         .map(|line| line.trim().to_string())
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io;
+
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    use super::Go2RtcApi;
+
+    async fn spawn_single_request_server(
+        status: u16,
+        body: &'static [u8],
+    ) -> Result<(u16, tokio::task::JoinHandle<String>), io::Error> {
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let port = listener.local_addr()?.port();
+
+        let handle = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("accept failed");
+            let mut buf = [0_u8; 2048];
+            let n = socket.read(&mut buf).await.expect("read failed");
+            let request = String::from_utf8_lossy(&buf[..n]).to_string();
+
+            let status_text = match status {
+                200 => "OK",
+                404 => "Not Found",
+                _ => "OK",
+            };
+            let response = format!(
+                "HTTP/1.1 {status} {status_text}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            socket
+                .write_all(response.as_bytes())
+                .await
+                .expect("response head write failed");
+            socket
+                .write_all(body)
+                .await
+                .expect("response body write failed");
+
+            request
+        });
+
+        Ok((port, handle))
+    }
+
+    #[tokio::test]
+    async fn snapshot_jpeg_uses_expected_endpoint_and_returns_bytes() {
+        let jpeg_bytes = b"\xFF\xD8\xFF\xD9";
+        let (port, handle) = spawn_single_request_server(200, jpeg_bytes).await.unwrap();
+        let api = Go2RtcApi::new("127.0.0.1", port);
+
+        let snapshot = api.snapshot_jpeg("front-door").await.unwrap();
+        assert_eq!(snapshot, jpeg_bytes);
+
+        let request = handle.await.unwrap();
+        assert!(request.starts_with("GET /api/frame.jpeg?src=front-door "));
+    }
 }

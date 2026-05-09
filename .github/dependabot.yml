@@ -1,0 +1,87 @@
+# Dependabot configuration for matter-onvif-bridge
+#
+# Keeps Cargo (Rust) crates, Docker base images, and GitHub Actions up to date.
+# PRs are opened weekly and labelled with "dependencies" for easy filtering.
+#
+# Docs: https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+
+version: 2
+
+updates:
+
+  # ── Cargo (Rust crates) ────────────────────────────────────────────────────
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "area: ci"
+    commit-message:
+      prefix: "cargo"
+      include: "scope"
+    # Group all Rust patch-version bumps into a single PR to reduce noise.
+    groups:
+      cargo-patch-updates:
+        applies-to: version-updates
+        update-types:
+          - "patch"
+    ignore:
+      # rs-matter is tracked via a git dependency (no version constraint).
+      # Dependabot cannot update git deps — skip to avoid false-positive PRs.
+      - dependency-name: "rs-matter"
+
+  # ── Docker (Dockerfile + docker-compose.yml) ───────────────────────────────
+  - package-ecosystem: "docker"
+    # Scans the root Dockerfile
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "area: docker"
+    commit-message:
+      prefix: "docker"
+      include: "scope"
+
+  - package-ecosystem: "docker"
+    # Scans docker/go2rtc/Dockerfile
+    directory: "/docker/go2rtc"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "area: docker"
+    commit-message:
+      prefix: "docker"
+      include: "scope"
+
+  # ── GitHub Actions ────────────────────────────────────────────────────────
+  # No workflow files exist yet, but Dependabot is pre-configured so that
+  # any actions added in future (CI, release) are automatically tracked.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "area: ci"
+    commit-message:
+      prefix: "actions"
+      include: "scope"

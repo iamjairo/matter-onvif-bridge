@@ -1,56 +1,79 @@
-//! Bridges ONVIF discovery and go2rtc media to the Matter camera endpoint states.
+//! Bridges ONVIF discovery and the configured media server to the Matter camera endpoint states.
 //!
 //! Runs on a separate tokio runtime thread that:
-//! 1. Starts go2rtc manager (wait for readiness)
+//! 1. Starts the media server manager (go2rtc or MediaMTX) and waits for readiness
 //! 2. Runs ONVIF WS-Discovery loop
 //! 3. Feeds discovered cameras into the CameraRegistry
-//! 4. Registers RTSP streams in go2rtc via StreamManager
+//! 4. Registers RTSP streams in the media server via StreamManager
 //! 5. Populates pre-allocated camera endpoint states with real ONVIF data
-//! 6. Stores the go2rtc API and slot map for WebRTC command handling
+//! 6. Stores the media API and slot map for WebRTC command handling
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
+use matter_camera::cluster_occupancy::OccupancyDataver;
 use matter_camera::types::{CameraEndpointState, VideoResolution, VideoSensorParams};
 use media::go2rtc_api::Go2RtcApi;
 use media::go2rtc_manager::{Go2RtcManager, Go2RtcMode};
+use media::media_api::AnyMediaApi;
+use media::mediamtx_api::MediaMtxApi;
+use media::mediamtx_manager::{MediaMtxManager, MediaMtxMode};
 use onvif_client::discovery::{DiscoveryConfig, DiscoveryEvent, DiscoveryMode};
-use matter_camera::cluster_occupancy::OccupancyDataver;
-use onvif_client::motion::{spawn_motion_pump, MotionPumpConfig};
+use onvif_client::motion::{MotionPumpConfig, spawn_motion_pump};
 use onvif_client::registry::{CameraRegistry, RegistryEvent};
 use onvif_client::types::CameraDevice;
 use tokio::sync::mpsc;
 
-use crate::config::{self, Config};
+use crate::config::{self, Config, ManualRtspCameraConfig, MediaConfig};
 use crate::slot_persistence::SlotMap;
 use crate::{MAX_CAMERAS, WITH_OCCUPANCY_CAMERAS};
+
+const FALLBACK_VIDEO_WIDTH: u16 = 1280;
+const FALLBACK_VIDEO_HEIGHT: u16 = 720;
+const FALLBACK_VIDEO_FPS: u16 = 15;
 
 /// Shared state accessible from the Matter handler thread for WebRTC negotiation.
 #[derive(Clone)]
 pub struct MediaBridge {
-    /// go2rtc API client for SDP exchange.
-    pub api: Go2RtcApi,
+    /// Media-server API client (go2rtc or MediaMTX) for SDP exchange.
+    pub api: AnyMediaApi,
     /// Maps camera ID → endpoint slot index (0-based, endpoint = slot + 2).
     pub slot_map: Arc<RwLock<HashMap<String, usize>>>,
-    /// Maps endpoint slot index → stream name for go2rtc.
+    /// Maps endpoint slot index → stream name for the media server.
     pub stream_names: Arc<RwLock<HashMap<usize, String>>>,
 }
 
-/// Start the ONVIF + go2rtc bridge on a separate tokio runtime thread.
+/// Start the ONVIF + media-server bridge on a separate tokio runtime thread.
 ///
 /// Returns a `MediaBridge` that can be used by the Matter WebRTC handler
-/// to perform SDP negotiation via go2rtc.
+/// to perform SDP negotiation via the configured media server.
 pub fn start_onvif_bridge(
     cfg: &Config,
     camera_states: &[Arc<RwLock<CameraEndpointState>>],
     occupancy_datavers: &[OccupancyDataver],
     registry: CameraRegistry,
 ) -> MediaBridge {
-    let go2rtc_api = Go2RtcApi::new(&cfg.go2rtc.host, cfg.go2rtc.api_port);
+    // Build the unified API client and start the media-server manager.
+    let (media_api, media_server_label): (AnyMediaApi, &'static str) = match &cfg.media {
+        MediaConfig::Go2Rtc(go2rtc_cfg) => {
+            let api = AnyMediaApi::Go2Rtc(Go2RtcApi::new(&go2rtc_cfg.host, go2rtc_cfg.api_port));
+            (api, "go2rtc")
+        }
+        MediaConfig::MediaMtx(mtx_cfg) => {
+            let api = AnyMediaApi::MediaMtx(MediaMtxApi::new(
+                &mtx_cfg.host,
+                mtx_cfg.api_port,
+                mtx_cfg.whep_port,
+            ));
+            (api, "mediamtx")
+        }
+    };
+
+    tracing::info!("Media server: {media_server_label}");
 
     let media_bridge = MediaBridge {
-        api: go2rtc_api.clone(),
+        api: media_api,
         slot_map: Arc::new(RwLock::new(HashMap::new())),
         stream_names: Arc::new(RwLock::new(HashMap::new())),
     };
@@ -66,19 +89,6 @@ pub fn start_onvif_bridge(
         static_cameras: cfg.onvif.static_cameras.clone(),
     };
 
-    let go2rtc_mode = match cfg.go2rtc.mode {
-        config::Go2RtcMode::External => Go2RtcMode::External,
-        config::Go2RtcMode::Local => Go2RtcMode::Local,
-    };
-
-    let go2rtc_manager = Go2RtcManager::new(
-        &cfg.go2rtc.host,
-        cfg.go2rtc.api_port,
-        cfg.go2rtc.webrtc_port,
-        go2rtc_mode,
-        &cfg.go2rtc.path,
-    );
-
     let states = camera_states.to_vec();
     let occupancy_datavers = occupancy_datavers.to_vec();
     let registry_clone = registry.clone();
@@ -86,7 +96,9 @@ pub fn start_onvif_bridge(
     let onvif_username = cfg.onvif.username.clone();
     let onvif_password = cfg.onvif.password.clone();
     let camera_names = cfg.onvif.camera_names.clone();
+    let manual_rtsp_cameras = cfg.manual_rtsp_cameras.clone();
     let storage_dir = std::path::PathBuf::from(&cfg.matter.storage_path);
+    let media_cfg = cfg.media.clone();
 
     std::thread::Builder::new()
         .name("onvif-media-bridge".into())
@@ -99,16 +111,36 @@ pub fn start_onvif_bridge(
             rt.block_on(async move {
                 log::info!("ONVIF/media bridge thread started");
 
-                // 1. Start go2rtc
-                if let Err(e) = go2rtc_manager.start().await {
-                    log::error!("Failed to start go2rtc: {e}");
-                    // Continue anyway — go2rtc may come up later
+                // 1. Start media server (go2rtc or MediaMTX)
+                let start_result = match media_cfg {
+                    MediaConfig::Go2Rtc(ref c) => {
+                        let mode = match c.mode {
+                            config::Go2RtcMode::External => Go2RtcMode::External,
+                            config::Go2RtcMode::Local => Go2RtcMode::Local,
+                        };
+                        Go2RtcManager::new(&c.host, c.api_port, c.webrtc_port, mode, &c.path)
+                            .start()
+                            .await
+                    }
+                    MediaConfig::MediaMtx(ref c) => {
+                        let mode = match c.mode {
+                            config::MediaMtxMode::External => MediaMtxMode::External,
+                            config::MediaMtxMode::Local => MediaMtxMode::Local,
+                        };
+                        MediaMtxManager::new(&c.host, c.api_port, c.whep_port, mode, &c.path)
+                            .start()
+                            .await
+                    }
+                };
+                if let Err(e) = start_result {
+                    log::error!("Failed to start media server: {e}");
+                    // Continue anyway — the media server may come up later
                 }
 
-                log::info!("go2rtc started, launching stream manager and ONVIF discovery");
+                log::info!("Media server started, launching stream manager and ONVIF discovery");
 
-                // 2. Spawn stream manager (registers RTSP streams in go2rtc)
-                let api_for_streams = go2rtc_api.clone();
+                // 2. Spawn stream manager (registers RTSP streams in the media server)
+                let api_for_streams = bridge_clone.api.clone();
                 let registry_for_streams = registry_clone.clone();
                 let stream_user = onvif_username.clone();
                 let stream_pass = onvif_password.clone();
@@ -141,6 +173,16 @@ pub fn start_onvif_bridge(
                 );
                 // Tracks the spawned motion pump per slot so we can abort on remove.
                 let mut motion_tasks: HashMap<usize, tokio::task::JoinHandle<()>> = HashMap::new();
+
+                if !manual_rtsp_cameras.is_empty() {
+                    log::info!(
+                        "Registering {} manual RTSP fallback camera(s)",
+                        manual_rtsp_cameras.len()
+                    );
+                    for camera in &manual_rtsp_cameras {
+                        registry_clone.add_camera(manual_rtsp_camera_device(camera));
+                    }
+                }
 
                 loop {
                     tokio::select! {
@@ -313,27 +355,64 @@ fn populate_camera_state(
         )
     });
 
-    // Video params from first profile
-    if let Some(profile) = camera.profiles.first() {
-        if let Some(ve) = &profile.video_encoder {
-            state.video_sensor_params = VideoSensorParams {
-                sensor_width: ve.width,
-                sensor_height: ve.height,
-                max_hdr_fps: None,
-                max_fps: ve.frame_rate,
-            };
-            state.viewport = VideoResolution {
-                width: ve.width,
-                height: ve.height,
-            };
-            state.current_frame_rate = ve.frame_rate;
-            state.max_encoded_pixel_rate =
-                ve.width as u32 * ve.height as u32 * ve.frame_rate as u32;
-        }
+    // Video params from ONVIF profiles; if unavailable, advertise conservative
+    // fallback defaults so manual RTSP cameras still present coherent
+    // video-only capability state.
+    let video_encoders: Vec<_> = camera
+        .profiles
+        .iter()
+        .filter_map(|profile| profile.video_encoder.as_ref())
+        .collect();
+    if let Some(video_encoder) = video_encoders
+        .iter()
+        .max_by_key(|enc| enc.width as u64 * enc.height as u64 * enc.frame_rate as u64)
+        .copied()
+    {
+        state.video_sensor_params = VideoSensorParams {
+            sensor_width: video_encoder.width,
+            sensor_height: video_encoder.height,
+            max_hdr_fps: None,
+            max_fps: video_encoder.frame_rate,
+        };
+        state.viewport = VideoResolution {
+            width: video_encoder.width,
+            height: video_encoder.height,
+        };
+        state.current_frame_rate = video_encoder.frame_rate;
+        state.max_encoded_pixel_rate = video_encoders.iter().fold(0_u32, |acc, enc| {
+            acc.saturating_add(enc.width as u32 * enc.height as u32 * enc.frame_rate as u32)
+        });
+        state.max_concurrent_video_encoders =
+            (video_encoders.len().max(1)).min(u8::MAX as usize) as u8;
+        let derived_bandwidth = video_encoders
+            .iter()
+            .fold(0_u32, |acc, enc| acc.saturating_add(enc.bitrate));
+        state.max_network_bandwidth = if derived_bandwidth > 0 {
+            derived_bandwidth
+        } else {
+            10_000
+        };
+    } else {
+        apply_fallback_video_state(&mut state);
+        state.max_network_bandwidth = 10_000;
     }
+}
 
-    state.max_concurrent_video_encoders = camera.profiles.len().max(1) as u8;
-    state.max_network_bandwidth = 10_000;
+fn apply_fallback_video_state(state: &mut CameraEndpointState) {
+    state.video_sensor_params = VideoSensorParams {
+        sensor_width: FALLBACK_VIDEO_WIDTH,
+        sensor_height: FALLBACK_VIDEO_HEIGHT,
+        max_hdr_fps: None,
+        max_fps: FALLBACK_VIDEO_FPS,
+    };
+    state.viewport = VideoResolution {
+        width: FALLBACK_VIDEO_WIDTH,
+        height: FALLBACK_VIDEO_HEIGHT,
+    };
+    state.current_frame_rate = FALLBACK_VIDEO_FPS;
+    state.max_encoded_pixel_rate =
+        FALLBACK_VIDEO_WIDTH as u32 * FALLBACK_VIDEO_HEIGHT as u32 * FALLBACK_VIDEO_FPS as u32;
+    state.max_concurrent_video_encoders = 1;
 }
 
 /// Sanitize camera ID into a go2rtc-compatible stream name.
@@ -347,4 +426,213 @@ fn sanitize_stream_name(id: &str) -> String {
             }
         })
         .collect()
+}
+
+fn manual_rtsp_camera_device(camera: &ManualRtspCameraConfig) -> CameraDevice {
+    let id = manual_camera_id(camera);
+    let (host, port) = parse_rtsp_host_and_port(&camera.rtsp_url);
+
+    CameraDevice {
+        id: id.clone(),
+        host,
+        port,
+        device_info: onvif_client::types::DeviceInfo {
+            manufacturer: "Manual RTSP".into(),
+            model: camera.name.clone(),
+            firmware_version: "manual-rtsp".into(),
+            serial_number: id.clone(),
+            hardware_id: "manual-rtsp".into(),
+        },
+        profiles: Vec::new(),
+        stream_uri: camera.rtsp_url.clone(),
+        events_url: None,
+        supports_motion: false,
+    }
+}
+
+fn manual_camera_id(camera: &ManualRtspCameraConfig) -> String {
+    if let Some(stable_id) = camera.stable_id.as_deref() {
+        return format!("manual:{stable_id}");
+    }
+
+    format!("manual:{}", derived_manual_camera_key(camera))
+}
+
+fn derived_manual_camera_key(camera: &ManualRtspCameraConfig) -> String {
+    let endpoint_hint = camera
+        .rtsp_url
+        .split_once("://")
+        .map(|(_, rest)| rest)
+        .unwrap_or(&camera.rtsp_url)
+        .rsplit('@')
+        .next()
+        .unwrap_or(&camera.rtsp_url);
+
+    format!(
+        "{}-{}",
+        sanitize_stream_name(&camera.name),
+        sanitize_stream_name(endpoint_hint)
+    )
+}
+
+fn parse_rtsp_host_and_port(rtsp_url: &str) -> (String, u16) {
+    let authority = rtsp_url
+        .split_once("://")
+        .map(|(_, rest)| rest)
+        .unwrap_or(rtsp_url)
+        .split('/')
+        .next()
+        .unwrap_or(rtsp_url)
+        .rsplit('@')
+        .next()
+        .unwrap_or(rtsp_url);
+
+    if let Some(rest) = authority.strip_prefix('[') {
+        if let Some((host, remainder)) = rest.split_once(']') {
+            let port = remainder
+                .strip_prefix(':')
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(554);
+            return (host.to_string(), port);
+        }
+    }
+
+    if let Some((host, port)) = authority.rsplit_once(':') {
+        if let Ok(port) = port.parse::<u16>() {
+            return (host.to_string(), port);
+        }
+    }
+
+    (authority.to_string(), 554)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, RwLock};
+
+    use matter_camera::types::CameraEndpointState;
+    use onvif_client::types::{CameraDevice, DeviceInfo, MediaProfile, VideoEncoderConfig};
+
+    use super::{
+        FALLBACK_VIDEO_FPS, FALLBACK_VIDEO_HEIGHT, FALLBACK_VIDEO_WIDTH, populate_camera_state,
+    };
+
+    fn sample_camera(profiles: Vec<MediaProfile>) -> CameraDevice {
+        CameraDevice {
+            id: "camera-1".into(),
+            host: "192.168.1.10".into(),
+            port: 554,
+            device_info: DeviceInfo {
+                manufacturer: "Manual RTSP".into(),
+                model: "Front Door".into(),
+                firmware_version: "manual-rtsp".into(),
+                serial_number: "manual:front-door".into(),
+                hardware_id: "manual-rtsp".into(),
+            },
+            profiles,
+            stream_uri: "rtsp://192.168.1.10:554/stream".into(),
+            events_url: None,
+            supports_motion: false,
+        }
+    }
+
+    #[test]
+    fn populate_camera_state_uses_conservative_fallbacks_without_profiles() {
+        let state = Arc::new(RwLock::new(CameraEndpointState::default()));
+        let camera = sample_camera(Vec::new());
+
+        populate_camera_state(&state, &camera, Some("Front Door"));
+
+        let state = state.read().unwrap();
+        assert!(state.occupied);
+        assert_eq!(state.node_label, "Front Door");
+        assert_eq!(state.video_sensor_params.sensor_width, FALLBACK_VIDEO_WIDTH);
+        assert_eq!(
+            state.video_sensor_params.sensor_height,
+            FALLBACK_VIDEO_HEIGHT
+        );
+        assert_eq!(state.video_sensor_params.max_fps, FALLBACK_VIDEO_FPS);
+        assert_eq!(state.viewport.width, FALLBACK_VIDEO_WIDTH);
+        assert_eq!(state.viewport.height, FALLBACK_VIDEO_HEIGHT);
+        assert_eq!(state.current_frame_rate, FALLBACK_VIDEO_FPS);
+        assert_eq!(state.max_concurrent_video_encoders, 1);
+    }
+
+    #[test]
+    fn populate_camera_state_prefers_profile_video_metadata_when_available() {
+        let state = Arc::new(RwLock::new(CameraEndpointState::default()));
+        let camera = sample_camera(vec![MediaProfile {
+            token: "main".into(),
+            name: "Main".into(),
+            video_encoder: Some(VideoEncoderConfig {
+                codec: "h264".into(),
+                width: 1920,
+                height: 1080,
+                frame_rate: 20,
+                bitrate: 4_000,
+                quality: 5.0,
+            }),
+            audio_encoder: None,
+            ptz_config_token: None,
+        }]);
+
+        populate_camera_state(&state, &camera, Some("Front Door"));
+
+        let state = state.read().unwrap();
+        assert_eq!(state.video_sensor_params.sensor_width, 1920);
+        assert_eq!(state.video_sensor_params.sensor_height, 1080);
+        assert_eq!(state.video_sensor_params.max_fps, 20);
+        assert_eq!(state.viewport.width, 1920);
+        assert_eq!(state.viewport.height, 1080);
+        assert_eq!(state.current_frame_rate, 20);
+        assert_eq!(state.max_concurrent_video_encoders, 1);
+    }
+
+    #[test]
+    fn populate_camera_state_aggregates_multiple_video_encoders() {
+        let state = Arc::new(RwLock::new(CameraEndpointState::default()));
+        let camera = sample_camera(vec![
+            MediaProfile {
+                token: "sub".into(),
+                name: "Sub".into(),
+                video_encoder: Some(VideoEncoderConfig {
+                    codec: "h264".into(),
+                    width: 640,
+                    height: 360,
+                    frame_rate: 15,
+                    bitrate: 512,
+                    quality: 5.0,
+                }),
+                audio_encoder: None,
+                ptz_config_token: None,
+            },
+            MediaProfile {
+                token: "main".into(),
+                name: "Main".into(),
+                video_encoder: Some(VideoEncoderConfig {
+                    codec: "h264".into(),
+                    width: 1920,
+                    height: 1080,
+                    frame_rate: 20,
+                    bitrate: 4_000,
+                    quality: 5.0,
+                }),
+                audio_encoder: None,
+                ptz_config_token: None,
+            },
+        ]);
+
+        populate_camera_state(&state, &camera, Some("Front Door"));
+
+        let state = state.read().unwrap();
+        assert_eq!(state.video_sensor_params.sensor_width, 1920);
+        assert_eq!(state.video_sensor_params.sensor_height, 1080);
+        assert_eq!(state.current_frame_rate, 20);
+        assert_eq!(state.max_concurrent_video_encoders, 2);
+        assert_eq!(state.max_network_bandwidth, 4_512);
+        assert!(
+            state.max_encoded_pixel_rate
+                >= (1920_u32 * 1080_u32 * 20_u32) + (640_u32 * 360_u32 * 15_u32)
+        );
+    }
 }

@@ -19,11 +19,15 @@ use crate::types::CameraEndpointState;
 
 pub const CLUSTER_ID: u32 = 0x0551;
 const CLUSTER_REVISION: u16 = 1;
+const IMAGE_CODEC_JPEG: u8 = 0;
 
 /// Read-Write with View for read, Operate for write.
 /// rs-matter doesn't define RWVO, so we compose it.
 const RWVO: Access = Access::from_bits_truncate(
-    Access::READ.bits() | Access::WRITE.bits() | Access::NEED_VIEW.bits() | Access::NEED_OPERATE.bits(),
+    Access::READ.bits()
+        | Access::WRITE.bits()
+        | Access::NEED_VIEW.bits()
+        | Access::NEED_OPERATE.bits(),
 );
 
 // ── Attribute enum ──
@@ -108,46 +112,158 @@ pub const AV_STREAM_CLUSTER: Cluster<'static> = Cluster::new(
     0, // feature_map
     // Attributes per Matter 1.5.0.1 spec
     attributes!(
-        Attribute::new(Attributes::MaxConcurrentEncoders as _, Access::RV, Quality::OPTIONAL),
-        Attribute::new(Attributes::MaxEncodedPixelRate as _, Access::RV, Quality::OPTIONAL),
-        Attribute::new(Attributes::VideoSensorParams as _, Access::RV, Quality::OPTIONAL),
-        Attribute::new(Attributes::NightVisionUsesInfrared as _, Access::RV, Quality::OPTIONAL),
-        Attribute::new(Attributes::MinViewportResolution as _, Access::RV, Quality::OPTIONAL),
-        Attribute::new(Attributes::RateDistortionTradeOffPoints as _, Access::RV, Quality::OPTIONAL),
-        Attribute::new(Attributes::MaxContentBufferSize as _, Access::RV, Quality::NONE),
-        Attribute::new(Attributes::MicrophoneCapabilities as _, Access::RV, Quality::OPTIONAL),
-        Attribute::new(Attributes::SpeakerCapabilities as _, Access::RV, Quality::OPTIONAL),
-        Attribute::new(Attributes::TwoWayTalkSupport as _, Access::RV, Quality::OPTIONAL),
-        Attribute::new(Attributes::SnapshotCapabilities as _, Access::RV, Quality::OPTIONAL),
-        Attribute::new(Attributes::MaxNetworkBandwidth as _, Access::RV, Quality::NONE),
-        Attribute::new(Attributes::CurrentFrameRate as _, Access::RV, Quality::OPTIONAL),
-        Attribute::new(Attributes::HdrModeEnabled as _, Access::RWVM, Quality::OPTIONAL),
-        Attribute::new(Attributes::SupportedStreamUsages as _, Access::RV, Quality::NONE),
-        Attribute::new(Attributes::AllocatedVideoStreams as _, Access::RV, Quality::OPTIONAL),
-        Attribute::new(Attributes::AllocatedAudioStreams as _, Access::RV, Quality::OPTIONAL),
-        Attribute::new(Attributes::AllocatedSnapshotStreams as _, Access::RV, Quality::OPTIONAL),
-        Attribute::new(Attributes::StreamUsagePriorities as _, Access::RV, Quality::NONE),
-        Attribute::new(Attributes::SoftRecordingPrivacyModeEnabled as _, RWVO, Quality::OPTIONAL),
-        Attribute::new(Attributes::SoftLivestreamPrivacyModeEnabled as _, RWVO, Quality::OPTIONAL),
-        Attribute::new(Attributes::HardPrivacyModeOn as _, Access::RV, Quality::OPTIONAL),
-        Attribute::new(Attributes::NightVision as _, Access::RWVM, Quality::OPTIONAL),
-        Attribute::new(Attributes::NightVisionIllum as _, Access::RWVM, Quality::OPTIONAL),
+        Attribute::new(
+            Attributes::MaxConcurrentEncoders as _,
+            Access::RV,
+            Quality::OPTIONAL
+        ),
+        Attribute::new(
+            Attributes::MaxEncodedPixelRate as _,
+            Access::RV,
+            Quality::OPTIONAL
+        ),
+        Attribute::new(
+            Attributes::VideoSensorParams as _,
+            Access::RV,
+            Quality::OPTIONAL
+        ),
+        Attribute::new(
+            Attributes::NightVisionUsesInfrared as _,
+            Access::RV,
+            Quality::OPTIONAL
+        ),
+        Attribute::new(
+            Attributes::MinViewportResolution as _,
+            Access::RV,
+            Quality::OPTIONAL
+        ),
+        Attribute::new(
+            Attributes::RateDistortionTradeOffPoints as _,
+            Access::RV,
+            Quality::OPTIONAL
+        ),
+        Attribute::new(
+            Attributes::MaxContentBufferSize as _,
+            Access::RV,
+            Quality::NONE
+        ),
+        Attribute::new(
+            Attributes::MicrophoneCapabilities as _,
+            Access::RV,
+            Quality::OPTIONAL
+        ),
+        Attribute::new(
+            Attributes::SpeakerCapabilities as _,
+            Access::RV,
+            Quality::OPTIONAL
+        ),
+        Attribute::new(
+            Attributes::TwoWayTalkSupport as _,
+            Access::RV,
+            Quality::OPTIONAL
+        ),
+        Attribute::new(
+            Attributes::SnapshotCapabilities as _,
+            Access::RV,
+            Quality::OPTIONAL
+        ),
+        Attribute::new(
+            Attributes::MaxNetworkBandwidth as _,
+            Access::RV,
+            Quality::NONE
+        ),
+        Attribute::new(
+            Attributes::CurrentFrameRate as _,
+            Access::RV,
+            Quality::OPTIONAL
+        ),
+        Attribute::new(
+            Attributes::HdrModeEnabled as _,
+            Access::RWVM,
+            Quality::OPTIONAL
+        ),
+        Attribute::new(
+            Attributes::SupportedStreamUsages as _,
+            Access::RV,
+            Quality::NONE
+        ),
+        Attribute::new(
+            Attributes::AllocatedVideoStreams as _,
+            Access::RV,
+            Quality::OPTIONAL
+        ),
+        Attribute::new(
+            Attributes::AllocatedAudioStreams as _,
+            Access::RV,
+            Quality::OPTIONAL
+        ),
+        Attribute::new(
+            Attributes::AllocatedSnapshotStreams as _,
+            Access::RV,
+            Quality::OPTIONAL
+        ),
+        Attribute::new(
+            Attributes::StreamUsagePriorities as _,
+            Access::RV,
+            Quality::NONE
+        ),
+        Attribute::new(
+            Attributes::SoftRecordingPrivacyModeEnabled as _,
+            RWVO,
+            Quality::OPTIONAL
+        ),
+        Attribute::new(
+            Attributes::SoftLivestreamPrivacyModeEnabled as _,
+            RWVO,
+            Quality::OPTIONAL
+        ),
+        Attribute::new(
+            Attributes::HardPrivacyModeOn as _,
+            Access::RV,
+            Quality::OPTIONAL
+        ),
+        Attribute::new(
+            Attributes::NightVision as _,
+            Access::RWVM,
+            Quality::OPTIONAL
+        ),
+        Attribute::new(
+            Attributes::NightVisionIllum as _,
+            Access::RWVM,
+            Quality::OPTIONAL
+        ),
         Attribute::new(Attributes::Viewport as _, Access::RWVM, Quality::OPTIONAL)
     ),
     commands!(
         // Accepted commands (requests)
-        Command::new(Commands::AudioStreamAllocate as _, Some(Commands::AudioStreamAllocateResponse as _), Access::WO),
+        Command::new(
+            Commands::AudioStreamAllocate as _,
+            Some(Commands::AudioStreamAllocateResponse as _),
+            Access::WO
+        ),
         Command::new(Commands::AudioStreamDeallocate as _, None, Access::WO),
-        Command::new(Commands::VideoStreamAllocate as _, Some(Commands::VideoStreamAllocateResponse as _), Access::WO),
+        Command::new(
+            Commands::VideoStreamAllocate as _,
+            Some(Commands::VideoStreamAllocateResponse as _),
+            Access::WO
+        ),
         Command::new(Commands::VideoStreamModify as _, None, Access::WO),
         Command::new(Commands::VideoStreamDeallocate as _, None, Access::WO),
-        Command::new(Commands::SnapshotStreamAllocate as _, Some(Commands::SnapshotStreamAllocateResponse as _), Access::WO),
+        Command::new(
+            Commands::SnapshotStreamAllocate as _,
+            Some(Commands::SnapshotStreamAllocateResponse as _),
+            Access::WO
+        ),
         Command::new(Commands::SnapshotStreamModify as _, None, Access::WO),
         Command::new(Commands::SnapshotStreamDeallocate as _, None, Access::WO),
         Command::new(Commands::SetStreamPriorities as _, None, Access::WO),
-        Command::new(Commands::CaptureSnapshot as _, Some(Commands::CaptureSnapshotResponse as _), Access::WO)
+        Command::new(
+            Commands::CaptureSnapshot as _,
+            Some(Commands::CaptureSnapshotResponse as _),
+            Access::WO
+        )
     ),
-    &[], // events: none
+    &[],            // events: none
     |_, _, _| true, // with_attrs
     |_, _, _| true, // with_cmds
     |_, _, _| true, // with_events
@@ -158,11 +274,36 @@ pub const AV_STREAM_CLUSTER: Cluster<'static> = Cluster::new(
 pub struct AvStreamHandler {
     dataver: Dataver,
     state: Arc<RwLock<CameraEndpointState>>,
+    snapshot_capture: Option<SnapshotCaptureFn>,
 }
+
+#[derive(Debug, Clone)]
+pub struct SnapshotCaptureRequest {
+    pub snapshot_stream_id: Option<u16>,
+    pub requested_resolution: crate::types::VideoResolution,
+}
+
+#[derive(Debug, Clone)]
+pub struct SnapshotCaptureResult {
+    pub jpeg_bytes: Vec<u8>,
+    pub resolution: crate::types::VideoResolution,
+}
+
+pub type SnapshotCaptureFn =
+    Box<dyn Fn(SnapshotCaptureRequest) -> Result<SnapshotCaptureResult, String> + Send + Sync>;
 
 impl AvStreamHandler {
     pub fn new(dataver: Dataver, state: Arc<RwLock<CameraEndpointState>>) -> Self {
-        Self { dataver, state }
+        Self {
+            dataver,
+            state,
+            snapshot_capture: None,
+        }
+    }
+
+    /// Set the snapshot capture callback.
+    pub fn set_snapshot_capture(&mut self, f: SnapshotCaptureFn) {
+        self.snapshot_capture = Some(f);
     }
 }
 
@@ -201,14 +342,12 @@ impl Handler for AvStreamHandler {
                 Attributes::MaxContentBufferSize => writer.set(0_u32),
                 Attributes::MicrophoneCapabilities => write_empty_array(writer),
                 Attributes::SpeakerCapabilities => write_empty_array(writer),
-                Attributes::TwoWayTalkSupport => {
-                    writer.set(state.two_way_talk_support as u8)
-                }
-                Attributes::SnapshotCapabilities => write_empty_array(writer),
+                Attributes::TwoWayTalkSupport => writer.set(state.two_way_talk_support as u8),
+                Attributes::SnapshotCapabilities => write_snapshot_capabilities(writer, &state),
                 Attributes::MaxNetworkBandwidth => writer.set(state.max_network_bandwidth),
                 Attributes::CurrentFrameRate => writer.set(state.current_frame_rate),
                 Attributes::HdrModeEnabled => writer.set(false),
-                Attributes::SupportedStreamUsages => write_empty_array(writer),
+                Attributes::SupportedStreamUsages => write_supported_stream_usages(writer),
                 Attributes::AllocatedVideoStreams => {
                     let tag = writer.tag().clone();
                     let mut tw = writer.writer();
@@ -258,8 +397,32 @@ impl Handler for AvStreamHandler {
                     drop(tw);
                     writer.complete()
                 }
-                Attributes::AllocatedSnapshotStreams => write_empty_array(writer),
-                Attributes::StreamUsagePriorities => write_empty_array(writer),
+                Attributes::AllocatedSnapshotStreams => {
+                    let tag = writer.tag().clone();
+                    let mut tw = writer.writer();
+                    tw.start_array(&tag)?;
+                    for ss in &state.allocated_snapshot_streams {
+                        tw.start_struct(&TLVTag::Anonymous)?;
+                        tw.u16(&TLVTag::Context(0), ss.snapshot_stream_id)?;
+                        tw.u8(&TLVTag::Context(1), ss.image_codec as u8)?;
+                        tw.u16(&TLVTag::Context(2), ss.frame_rate)?;
+                        tw.start_struct(&TLVTag::Context(3))?;
+                        tw.u16(&TLVTag::Context(0), ss.min_resolution.width)?;
+                        tw.u16(&TLVTag::Context(1), ss.min_resolution.height)?;
+                        tw.end_container()?;
+                        tw.start_struct(&TLVTag::Context(4))?;
+                        tw.u16(&TLVTag::Context(0), ss.max_resolution.width)?;
+                        tw.u16(&TLVTag::Context(1), ss.max_resolution.height)?;
+                        tw.end_container()?;
+                        tw.u8(&TLVTag::Context(5), ss.quality)?;
+                        tw.u8(&TLVTag::Context(6), ss.reference_count.unwrap_or(0))?;
+                        tw.end_container()?;
+                    }
+                    tw.end_container()?;
+                    drop(tw);
+                    writer.complete()
+                }
+                Attributes::StreamUsagePriorities => write_stream_usage_priorities(writer),
                 Attributes::SoftRecordingPrivacyModeEnabled => {
                     writer.set(state.soft_recording_privacy_mode_enabled)
                 }
@@ -269,9 +432,7 @@ impl Handler for AvStreamHandler {
                 Attributes::HardPrivacyModeOn => writer.set(state.hard_privacy_mode_on),
                 Attributes::NightVision => writer.set(state.night_vision as u8),
                 Attributes::NightVisionIllum => writer.set(state.night_vision_illum as u8),
-                Attributes::Viewport => {
-                    write_video_resolution(writer, &state.viewport)
-                }
+                Attributes::Viewport => write_video_resolution(writer, &state.viewport),
                 // Optional attributes we don't implement yet — return default values
                 Attributes::SpeakerMuted
                 | Attributes::MicrophoneMuted
@@ -333,13 +494,12 @@ impl Handler for AvStreamHandler {
     fn invoke(&self, ctx: impl InvokeContext, reply: impl InvokeReply) -> Result<(), Error> {
         let cmd = ctx.cmd();
         let data = ctx.data();
-        let mut state = self.state.write().map_err(|_| ErrorCode::Busy)?;
-
         // Helper: parse a struct field from the incoming TLV command data
         let fields = data.structure()?;
 
         match cmd.cmd_id.try_into()? {
             Commands::VideoStreamAllocate => {
+                let mut state = self.state.write().map_err(|_| ErrorCode::Busy)?;
                 let id = state.next_video_stream_id;
                 state.next_video_stream_id += 1;
 
@@ -356,7 +516,10 @@ impl Handler for AvStreamHandler {
                     video_codec: parse_video_codec(video_codec),
                     min_frame_rate,
                     max_frame_rate,
-                    min_resolution: crate::types::VideoResolution { width: 320, height: 240 },
+                    min_resolution: crate::types::VideoResolution {
+                        width: 320,
+                        height: 240,
+                    },
                     max_resolution: crate::types::VideoResolution {
                         width: state.video_sensor_params.sensor_width,
                         height: state.video_sensor_params.sensor_height,
@@ -373,8 +536,11 @@ impl Handler for AvStreamHandler {
                 writer.set(id)
             }
             Commands::VideoStreamDeallocate => {
+                let mut state = self.state.write().map_err(|_| ErrorCode::Busy)?;
                 let stream_id = fields.find_ctx(0)?.u16().unwrap_or(0);
-                state.allocated_video_streams.retain(|s| s.video_stream_id != stream_id);
+                state
+                    .allocated_video_streams
+                    .retain(|s| s.video_stream_id != stream_id);
                 self.dataver.changed();
                 debug!(video_stream_id = stream_id, "VideoStreamDeallocate");
                 Ok(())
@@ -384,6 +550,7 @@ impl Handler for AvStreamHandler {
                 Ok(())
             }
             Commands::AudioStreamAllocate => {
+                let mut state = self.state.write().map_err(|_| ErrorCode::Busy)?;
                 let id = state.next_audio_stream_id;
                 state.next_audio_stream_id += 1;
 
@@ -413,16 +580,43 @@ impl Handler for AvStreamHandler {
                 writer.set(id)
             }
             Commands::AudioStreamDeallocate => {
+                let mut state = self.state.write().map_err(|_| ErrorCode::Busy)?;
                 let stream_id = fields.find_ctx(0)?.u16().unwrap_or(0);
-                state.allocated_audio_streams.retain(|s| s.audio_stream_id != stream_id);
+                state
+                    .allocated_audio_streams
+                    .retain(|s| s.audio_stream_id != stream_id);
                 self.dataver.changed();
                 debug!(audio_stream_id = stream_id, "AudioStreamDeallocate");
                 Ok(())
             }
             Commands::SnapshotStreamAllocate => {
+                let mut state = self.state.write().map_err(|_| ErrorCode::Busy)?;
                 let id = state.next_snapshot_stream_id;
                 state.next_snapshot_stream_id += 1;
-                debug!(snapshot_stream_id = id, "SnapshotStreamAllocate (stub)");
+                let image_codec =
+                    parse_image_codec(fields.find_ctx(0)?.u8().unwrap_or(IMAGE_CODEC_JPEG));
+                let frame_rate = fields
+                    .find_ctx(1)?
+                    .u16()
+                    .unwrap_or(state.video_sensor_params.max_fps);
+                let min_resolution = parse_resolution_struct(fields.find_ctx(2)?)
+                    .unwrap_or_else(|| state.min_viewport.clone());
+                let max_resolution = parse_resolution_struct(fields.find_ctx(3)?)
+                    .unwrap_or_else(|| state.viewport.clone());
+                let quality = fields.find_ctx(4)?.u8().unwrap_or(90).min(100);
+
+                state
+                    .allocated_snapshot_streams
+                    .push(crate::types::SnapshotStream {
+                        snapshot_stream_id: id,
+                        image_codec,
+                        frame_rate,
+                        min_resolution,
+                        max_resolution,
+                        quality,
+                        reference_count: None,
+                    });
+                debug!(snapshot_stream_id = id, "SnapshotStreamAllocate");
                 self.dataver.changed();
 
                 let writer = reply.with_command(Commands::SnapshotStreamAllocateResponse as _)?;
@@ -433,8 +627,11 @@ impl Handler for AvStreamHandler {
                 Ok(())
             }
             Commands::SnapshotStreamDeallocate => {
+                let mut state = self.state.write().map_err(|_| ErrorCode::Busy)?;
                 let stream_id = fields.find_ctx(0)?.u16().unwrap_or(0);
-                state.allocated_snapshot_streams.retain(|s| s.snapshot_stream_id != stream_id);
+                state
+                    .allocated_snapshot_streams
+                    .retain(|s| s.snapshot_stream_id != stream_id);
                 self.dataver.changed();
                 Ok(())
             }
@@ -443,15 +640,52 @@ impl Handler for AvStreamHandler {
                 Ok(())
             }
             Commands::CaptureSnapshot => {
-                debug!("CaptureSnapshot not implemented");
-                Err(ErrorCode::CommandNotFound.into())
+                let snapshot_stream_id = parse_nullable_u16(fields.find_ctx(0)?)?;
+                let requested_resolution = parse_resolution_struct(fields.find_ctx(1)?)
+                    .ok_or(ErrorCode::InvalidCommand)?;
+
+                let snapshot_capture = self
+                    .snapshot_capture
+                    .as_ref()
+                    .ok_or(ErrorCode::CommandNotFound)?;
+
+                {
+                    let state = self.state.read().map_err(|_| ErrorCode::Busy)?;
+                    if let Some(stream_id) = snapshot_stream_id {
+                        let stream_exists = state
+                            .allocated_snapshot_streams
+                            .iter()
+                            .any(|s| s.snapshot_stream_id == stream_id);
+                        if !stream_exists {
+                            return Err(ErrorCode::InvalidCommand.into());
+                        }
+                    }
+                }
+
+                let result = snapshot_capture(SnapshotCaptureRequest {
+                    snapshot_stream_id,
+                    requested_resolution,
+                })
+                .map_err(|_| ErrorCode::Failure)?;
+
+                let mut writer = reply.with_command(Commands::CaptureSnapshotResponse as _)?;
+                let tag = writer.tag().clone();
+                let mut tw = writer.writer();
+                tw.start_struct(&tag)?;
+                tw.str(&TLVTag::Context(0), &result.jpeg_bytes)?;
+                tw.u8(&TLVTag::Context(1), IMAGE_CODEC_JPEG)?;
+                tw.start_struct(&TLVTag::Context(2))?;
+                tw.u16(&TLVTag::Context(0), result.resolution.width)?;
+                tw.u16(&TLVTag::Context(1), result.resolution.height)?;
+                tw.end_container()?;
+                tw.end_container()?;
+                drop(tw);
+                writer.complete()
             }
             Commands::VideoStreamAllocateResponse
             | Commands::AudioStreamAllocateResponse
             | Commands::SnapshotStreamAllocateResponse
-            | Commands::CaptureSnapshotResponse => {
-                Err(ErrorCode::CommandNotFound.into())
-            }
+            | Commands::CaptureSnapshotResponse => Err(ErrorCode::CommandNotFound.into()),
         }
     }
 }
@@ -460,7 +694,10 @@ impl NonBlockingHandler for AvStreamHandler {}
 
 // ── Helpers ──
 
-fn write_video_resolution(mut writer: impl Reply, res: &crate::types::VideoResolution) -> Result<(), Error> {
+fn write_video_resolution(
+    mut writer: impl Reply,
+    res: &crate::types::VideoResolution,
+) -> Result<(), Error> {
     let tag = writer.tag().clone();
     let mut tw = writer.writer();
     tw.start_struct(&tag)?;
@@ -475,6 +712,53 @@ fn write_empty_array(mut writer: impl Reply) -> Result<(), Error> {
     let tag = writer.tag().clone();
     let mut tw = writer.writer();
     tw.start_array(&tag)?;
+    tw.end_container()?;
+    drop(tw);
+    writer.complete()
+}
+
+fn write_snapshot_capabilities(
+    mut writer: impl Reply,
+    state: &CameraEndpointState,
+) -> Result<(), Error> {
+    let tag = writer.tag().clone();
+    let mut tw = writer.writer();
+    tw.start_array(&tag)?;
+    tw.start_struct(&TLVTag::Anonymous)?;
+    tw.start_struct(&TLVTag::Context(0))?;
+    tw.u16(&TLVTag::Context(0), state.video_sensor_params.sensor_width)?;
+    tw.u16(&TLVTag::Context(1), state.video_sensor_params.sensor_height)?;
+    tw.end_container()?;
+    tw.u16(&TLVTag::Context(1), state.video_sensor_params.max_fps)?;
+    tw.u8(&TLVTag::Context(2), IMAGE_CODEC_JPEG)?;
+    tw.bool(&TLVTag::Context(3), false)?;
+    tw.end_container()?;
+    tw.end_container()?;
+    drop(tw);
+    writer.complete()
+}
+
+fn write_supported_stream_usages(mut writer: impl Reply) -> Result<(), Error> {
+    let tag = writer.tag().clone();
+    let mut tw = writer.writer();
+    tw.start_array(&tag)?;
+    tw.u8(
+        &TLVTag::Anonymous,
+        crate::types::StreamUsage::LiveView as u8,
+    )?;
+    tw.end_container()?;
+    drop(tw);
+    writer.complete()
+}
+
+fn write_stream_usage_priorities(mut writer: impl Reply) -> Result<(), Error> {
+    let tag = writer.tag().clone();
+    let mut tw = writer.writer();
+    tw.start_array(&tag)?;
+    tw.u8(
+        &TLVTag::Anonymous,
+        crate::types::StreamUsage::LiveView as u8,
+    )?;
     tw.end_container()?;
     drop(tw);
     writer.complete()
@@ -504,5 +788,77 @@ fn parse_audio_codec(v: u8) -> crate::types::AudioCodec {
         1 => crate::types::AudioCodec::AacLc,
         2 => crate::types::AudioCodec::G711A,
         _ => crate::types::AudioCodec::G711U,
+    }
+}
+
+fn parse_image_codec(v: u8) -> crate::types::ImageCodec {
+    match v {
+        0 => crate::types::ImageCodec::Jpeg,
+        _ => crate::types::ImageCodec::Heic,
+    }
+}
+
+fn parse_resolution_struct(
+    elem: rs_matter::tlv::TLVElement<'_>,
+) -> Option<crate::types::VideoResolution> {
+    let Ok(res_struct) = elem.structure() else {
+        return None;
+    };
+
+    Some(crate::types::VideoResolution {
+        width: res_struct.find_ctx(0).ok()?.u16().ok()?,
+        height: res_struct.find_ctx(1).ok()?.u16().ok()?,
+    })
+}
+
+fn parse_nullable_u16(elem: rs_matter::tlv::TLVElement<'_>) -> Result<Option<u16>, Error> {
+    if elem.is_empty() || elem.null().is_ok() {
+        return Ok(None);
+    }
+
+    elem.u16()
+        .map(Some)
+        .map_err(|_| ErrorCode::InvalidCommand.into())
+}
+
+#[cfg(test)]
+mod tests {
+    use rs_matter::tlv::{TLVElement, TLVTag, TLVWrite};
+    use rs_matter::utils::storage::WriteBuf;
+
+    use super::{parse_nullable_u16, parse_resolution_struct};
+
+    #[test]
+    fn parse_resolution_struct_reads_width_and_height() {
+        let mut backing = vec![0_u8; 128];
+        let mut tw = WriteBuf::new(backing.as_mut_slice());
+        tw.start_struct(&TLVTag::Anonymous).unwrap();
+        tw.start_struct(&TLVTag::Context(1)).unwrap();
+        tw.u16(&TLVTag::Context(0), 1280).unwrap();
+        tw.u16(&TLVTag::Context(1), 720).unwrap();
+        tw.end_container().unwrap();
+        tw.end_container().unwrap();
+
+        let encoded = tw.as_slice().to_vec();
+        let root = TLVElement::new(&encoded);
+        let fields = root.structure().unwrap();
+        let parsed = parse_resolution_struct(fields.find_ctx(1).unwrap()).unwrap();
+        assert_eq!(parsed.width, 1280);
+        assert_eq!(parsed.height, 720);
+    }
+
+    #[test]
+    fn parse_nullable_u16_accepts_null() {
+        let mut backing = vec![0_u8; 128];
+        let mut tw = WriteBuf::new(backing.as_mut_slice());
+        tw.start_struct(&TLVTag::Anonymous).unwrap();
+        tw.null(&TLVTag::Context(0)).unwrap();
+        tw.end_container().unwrap();
+
+        let encoded = tw.as_slice().to_vec();
+        let root = TLVElement::new(&encoded);
+        let fields = root.structure().unwrap();
+        let parsed = parse_nullable_u16(fields.find_ctx(0).unwrap()).unwrap();
+        assert_eq!(parsed, None);
     }
 }
