@@ -151,7 +151,7 @@ MANUAL_RTSP_CAMERAS=Front Door|rtsp://user:pass@192.168.1.10:554/stream1|front-d
 
 #### Manual vs ONVIF duplication / precedence
 
-V1 does **not** try to deduplicate a manual RTSP entry against an ONVIF-discovered camera automatically.
+The current implementation does **not** try to deduplicate a manual RTSP entry against an ONVIF-discovered camera automatically.
 
 - A manual RTSP entry is always added as its own explicit fallback camera identity.
 - ONVIF discovery and static-host cameras continue to work unchanged.
