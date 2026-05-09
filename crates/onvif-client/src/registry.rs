@@ -2,7 +2,7 @@
 //!
 //! Mirrors the TypeScript CameraRegistry with event-based add/remove notifications.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, hash_map::Entry};
 use std::sync::{Arc, RwLock};
 
 use tokio::sync::broadcast;
@@ -47,19 +47,22 @@ impl CameraRegistry {
         let mut cameras = self.cameras.write().unwrap();
         let id = camera.id.clone();
 
-        if cameras.contains_key(&id) {
-            info!(camera_id = id, "Camera updated in registry");
-            cameras.insert(id, camera.clone());
-            let _ = self.tx.send(RegistryEvent::Updated(camera));
-        } else {
-            info!(
-                camera_id = id,
-                manufacturer = camera.device_info.manufacturer,
-                model = camera.device_info.model,
-                "Camera added to registry"
-            );
-            cameras.insert(id, camera.clone());
-            let _ = self.tx.send(RegistryEvent::Added(camera));
+        match cameras.entry(id.clone()) {
+            Entry::Occupied(mut entry) => {
+                info!(camera_id = id, "Camera updated in registry");
+                entry.insert(camera.clone());
+                let _ = self.tx.send(RegistryEvent::Updated(camera));
+            }
+            Entry::Vacant(entry) => {
+                info!(
+                    camera_id = id,
+                    manufacturer = camera.device_info.manufacturer,
+                    model = camera.device_info.model,
+                    "Camera added to registry"
+                );
+                entry.insert(camera.clone());
+                let _ = self.tx.send(RegistryEvent::Added(camera));
+            }
         }
     }
 

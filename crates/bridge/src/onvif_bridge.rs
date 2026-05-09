@@ -189,7 +189,7 @@ pub fn start_onvif_bridge(
                         Some(event) = discovery_rx.recv() => {
                             match event {
                                 DiscoveryEvent::CameraFound(camera) => {
-                                    registry_clone.add_camera(camera);
+                                    registry_clone.add_camera(*camera);
                                 }
                                 DiscoveryEvent::CameraLost(id) => {
                                     registry_clone.remove_camera(&id);
@@ -237,39 +237,38 @@ pub fn start_onvif_bridge(
                                         // a MotionAlarm topic, spawn the PullPoint pump now.
                                         if camera.supports_motion
                                             && slot < WITH_OCCUPANCY_CAMERAS
+                                            && let Some(events_url) = camera.events_url.clone()
                                         {
-                                            if let Some(events_url) = camera.events_url.clone() {
-                                                let pump_cfg = MotionPumpConfig {
-                                                    host: camera.host.clone(),
-                                                    port: camera.port,
-                                                    username: onvif_username.clone(),
-                                                    password: onvif_password.clone(),
-                                                    events_url,
-                                                    label: friendly_name.clone().unwrap_or_else(|| {
-                                                        format!(
-                                                            "{} {} @ {}",
-                                                            camera.device_info.manufacturer,
-                                                            camera.device_info.model,
-                                                            camera.host
-                                                        )
-                                                    }),
-                                                };
-                                                let state_for_pump = Arc::clone(&states[slot]);
-                                                let dataver_for_pump =
-                                                    occupancy_datavers[slot].clone();
-                                                let handle = spawn_motion_pump(
-                                                    pump_cfg,
-                                                    move |motion| {
-                                                        if let Ok(mut s) = state_for_pump.write() {
-                                                            if s.motion_detected != motion {
-                                                                s.motion_detected = motion;
-                                                                dataver_for_pump.bump();
-                                                            }
-                                                        }
-                                                    },
-                                                );
-                                                motion_tasks.insert(slot, handle);
-                                            }
+                                            let pump_cfg = MotionPumpConfig {
+                                                host: camera.host.clone(),
+                                                port: camera.port,
+                                                username: onvif_username.clone(),
+                                                password: onvif_password.clone(),
+                                                events_url,
+                                                label: friendly_name.clone().unwrap_or_else(|| {
+                                                    format!(
+                                                        "{} {} @ {}",
+                                                        camera.device_info.manufacturer,
+                                                        camera.device_info.model,
+                                                        camera.host
+                                                    )
+                                                }),
+                                            };
+                                            let state_for_pump = Arc::clone(&states[slot]);
+                                            let dataver_for_pump =
+                                                occupancy_datavers[slot].clone();
+                                            let handle = spawn_motion_pump(
+                                                pump_cfg,
+                                                move |motion| {
+                                                    if let Ok(mut s) = state_for_pump.write()
+                                                        && s.motion_detected != motion
+                                                    {
+                                                        s.motion_detected = motion;
+                                                        dataver_for_pump.bump();
+                                                    }
+                                                },
+                                            );
+                                            motion_tasks.insert(slot, handle);
                                         }
                                     } else {
                                         log::warn!(
@@ -280,35 +279,35 @@ pub fn start_onvif_bridge(
                                     }
                                 }
                                 RegistryEvent::Updated(camera) => {
-                                    if let Ok(map) = bridge_clone.slot_map.read() {
-                                        if let Some(&slot) = map.get(&camera.id) {
-                                            let friendly_name = camera_names
-                                                .get(&camera.device_info.serial_number)
-                                                .or_else(|| camera_names.get(&camera.id))
-                                                .or_else(|| camera_names.get(&camera.host))
-                                                .map(String::as_str);
-                                            populate_camera_state(
-                                                &states[slot],
-                                                &camera,
-                                                friendly_name,
-                                            );
-                                        }
+                                    if let Ok(map) = bridge_clone.slot_map.read()
+                                        && let Some(&slot) = map.get(&camera.id)
+                                    {
+                                        let friendly_name = camera_names
+                                            .get(&camera.device_info.serial_number)
+                                            .or_else(|| camera_names.get(&camera.id))
+                                            .or_else(|| camera_names.get(&camera.host))
+                                            .map(String::as_str);
+                                        populate_camera_state(
+                                            &states[slot],
+                                            &camera,
+                                            friendly_name,
+                                        );
                                     }
                                 }
                                 RegistryEvent::Removed(id) => {
-                                    if let Ok(mut map) = bridge_clone.slot_map.write() {
-                                        if let Some(slot) = map.remove(&id) {
-                                            if let Ok(mut state) = states[slot].write() {
-                                                *state = CameraEndpointState::default();
-                                            }
-                                            if let Ok(mut names) = bridge_clone.stream_names.write() {
-                                                names.remove(&slot);
-                                            }
-                                            if let Some(handle) = motion_tasks.remove(&slot) {
-                                                handle.abort();
-                                            }
-                                            log::info!("Camera {} removed from endpoint {}", id, slot + 2);
+                                    if let Ok(mut map) = bridge_clone.slot_map.write()
+                                        && let Some(slot) = map.remove(&id)
+                                    {
+                                        if let Ok(mut state) = states[slot].write() {
+                                            *state = CameraEndpointState::default();
                                         }
+                                        if let Ok(mut names) = bridge_clone.stream_names.write() {
+                                            names.remove(&slot);
+                                        }
+                                        if let Some(handle) = motion_tasks.remove(&slot) {
+                                            handle.abort();
+                                        }
+                                        log::info!("Camera {} removed from endpoint {}", id, slot + 2);
                                     }
                                 }
                             }
@@ -487,20 +486,20 @@ fn parse_rtsp_host_and_port(rtsp_url: &str) -> (String, u16) {
         .next()
         .unwrap_or(rtsp_url);
 
-    if let Some(rest) = authority.strip_prefix('[') {
-        if let Some((host, remainder)) = rest.split_once(']') {
-            let port = remainder
-                .strip_prefix(':')
-                .and_then(|value| value.parse().ok())
-                .unwrap_or(554);
-            return (host.to_string(), port);
-        }
+    if let Some(rest) = authority.strip_prefix('[')
+        && let Some((host, remainder)) = rest.split_once(']')
+    {
+        let port = remainder
+            .strip_prefix(':')
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(554);
+        return (host.to_string(), port);
     }
 
-    if let Some((host, port)) = authority.rsplit_once(':') {
-        if let Ok(port) = port.parse::<u16>() {
-            return (host.to_string(), port);
-        }
+    if let Some((host, port)) = authority.rsplit_once(':')
+        && let Ok(port) = port.parse::<u16>()
+    {
+        return (host.to_string(), port);
     }
 
     (authority.to_string(), 554)
