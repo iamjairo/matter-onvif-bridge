@@ -130,6 +130,9 @@ fn inject_credentials(uri: &str, username: &str, password: &str) -> String {
 mod tests {
     use super::*;
 
+    const TEST_USERNAME: &str = "admin";
+    const TEST_PASSWORD: &str = "pass";
+
     #[test]
     fn test_sanitize_stream_name() {
         assert_eq!(sanitize_stream_name("camera-1"), "camera-1");
@@ -140,17 +143,17 @@ mod tests {
     #[test]
     fn test_inject_credentials() {
         assert_eq!(
-            inject_credentials("rtsp://192.168.1.1:554/stream", "admin", "pass"),
+            inject_credentials("rtsp://192.168.1.1:554/stream", TEST_USERNAME, TEST_PASSWORD),
             "rtsp://admin:pass@192.168.1.1:554/stream"
         );
         assert_eq!(
             inject_credentials(
                 "rtsp://user:existing@192.168.1.1:554/stream",
-                "admin",
-                "pass"
+                TEST_USERNAME,
+                TEST_PASSWORD
             ),
             "rtsp://user:existing@192.168.1.1:554/stream"
         );
-        assert_eq!(inject_credentials("", "admin", "pass"), "");
+        assert_eq!(inject_credentials("", TEST_USERNAME, TEST_PASSWORD), "");
     }
 }
