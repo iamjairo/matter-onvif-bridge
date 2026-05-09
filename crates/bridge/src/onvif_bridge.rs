@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
+use matter_camera::cluster_occupancy::OccupancyDataver;
 use matter_camera::types::{CameraEndpointState, VideoResolution, VideoSensorParams};
 use media::go2rtc_api::Go2RtcApi;
 use media::go2rtc_manager::{Go2RtcManager, Go2RtcMode};
@@ -19,8 +20,7 @@ use media::media_api::AnyMediaApi;
 use media::mediamtx_api::MediaMtxApi;
 use media::mediamtx_manager::{MediaMtxManager, MediaMtxMode};
 use onvif_client::discovery::{DiscoveryConfig, DiscoveryEvent, DiscoveryMode};
-use matter_camera::cluster_occupancy::OccupancyDataver;
-use onvif_client::motion::{spawn_motion_pump, MotionPumpConfig};
+use onvif_client::motion::{MotionPumpConfig, spawn_motion_pump};
 use onvif_client::registry::{CameraRegistry, RegistryEvent};
 use onvif_client::types::CameraDevice;
 use tokio::sync::mpsc;

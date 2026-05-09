@@ -133,9 +133,7 @@ impl Config {
         };
 
         // Determine which media server to use
-        let media_server_str = env::var("MEDIA_SERVER")
-            .unwrap_or_default()
-            .to_lowercase();
+        let media_server_str = env::var("MEDIA_SERVER").unwrap_or_default().to_lowercase();
 
         let media = if media_server_str == "mediamtx" {
             let default_mtx = MediaMtxConfig {
