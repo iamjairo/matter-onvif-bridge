@@ -43,6 +43,9 @@ impl MediaMtxApi {
     }
 
     /// Add or overwrite a path with an RTSP source URL.
+    ///
+    /// MediaMTX returns 400 when the path already exists (conflict), but the
+    /// stream is live — confirm with `stream_matches` and treat as success.
     pub async fn add_stream(&self, name: &str, rtsp_url: &str) -> Result<(), String> {
         let url = format!("{}/v3/config/paths/add/{}", self.api_base, name);
         let body = PathConfig {
@@ -59,8 +62,13 @@ impl MediaMtxApi {
             .await
             .map_err(|e| format!("POST /v3/config/paths/add failed: {e}"))?;
 
-        // 200 OK (created/updated) or 400 if already exists with same config — treat both as ok.
         if !resp.status().is_success() {
+            // MediaMTX returns 400 when the path already exists. If the existing
+            // path matches the URL we wanted, treat it as success.
+            if resp.status().as_u16() == 400 && self.stream_matches(name, rtsp_url).await {
+                debug!(name, "MediaMTX path already exists with matching URL, skipping");
+                return Ok(());
+            }
             return Err(format!(
                 "POST /v3/config/paths/add/{name} returned {}",
                 resp.status()
