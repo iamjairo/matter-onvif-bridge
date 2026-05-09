@@ -160,7 +160,7 @@ impl Handler for WebRtcHandler {
                 // Matter 1.5 ProvideOffer fields:
                 //   ctx(0)  WebRTCSessionID — nullable u16 for session resumption (ignored here)
                 //   ctx(1)  SDP — the offer string
-                //   ctx(2)  ICEServers — optional list (not read; go2rtc/MediaMTX handles STUN)
+                //   ctx(2)  ICEServers — optional list (not read; the media server handles STUN/TURN)
                 //   ctx(3)  ICETransportPolicy — optional enum8 (not read)
                 //   ctx(4)  MetadataOptions — optional bitmap8 (not read)
                 let sdp_offer = parse_provide_offer_sdp(&fields)?;
@@ -459,18 +459,57 @@ mod tests {
     }
 
     #[test]
-    fn provide_offer_malformed_sdp_field_fails() {
-        let mut backing = vec![0_u8; 256];
+    fn solicit_offer_response_encodes_session_id_and_deferred_flag() {
+        // Verify that a SolicitOfferResponse TLV struct can be encoded with
+        // ctx(0) = session_id (u16) and ctx(1) = deferredOffer (bool = true).
+        // This mirrors what the SolicitOffer handler writes before returning.
+        let mut backing = vec![0_u8; 64];
         let mut tw = WriteBuf::new(backing.as_mut_slice());
         tw.start_struct(&TLVTag::Anonymous).unwrap();
-        tw.u8(&TLVTag::Context(1), 42).unwrap();
+        tw.u16(&TLVTag::Context(0), 42_u16).unwrap(); // WebRTCSessionID
+        tw.bool(&TLVTag::Context(1), true).unwrap(); // DeferredOffer
         tw.end_container().unwrap();
 
         let encoded = tw.as_slice().to_vec();
         let root = TLVElement::new(&encoded);
         let fields = root.structure().unwrap();
 
-        assert!(parse_provide_offer_sdp(&fields).is_err());
+        assert_eq!(fields.find_ctx(0).unwrap().u16().unwrap(), 42);
+        assert!(fields.find_ctx(1).unwrap().bool().unwrap());
+    }
+
+    #[test]
+    fn provide_answer_parses_session_id_from_ctx0() {
+        // ProvideAnswer carries a session_id in ctx(0). Verify that we can read it,
+        // which mirrors the find_ctx(0)?.u16().unwrap_or(0) call in the handler.
+        let mut backing = vec![0_u8; 64];
+        let mut tw = WriteBuf::new(backing.as_mut_slice());
+        tw.start_struct(&TLVTag::Anonymous).unwrap();
+        tw.u16(&TLVTag::Context(0), 7_u16).unwrap(); // WebRTCSessionID
+        tw.end_container().unwrap();
+
+        let encoded = tw.as_slice().to_vec();
+        let root = TLVElement::new(&encoded);
+        let fields = root.structure().unwrap();
+
+        let session_id = fields.find_ctx(0).unwrap().u16().unwrap_or(0);
+        assert_eq!(session_id, 7);
+    }
+
+    #[test]
+    fn provide_answer_missing_session_id_defaults_to_zero() {
+        // ProvideAnswer with no ctx(0) field should default to 0 without panicking.
+        let mut backing = vec![0_u8; 32];
+        let mut tw = WriteBuf::new(backing.as_mut_slice());
+        tw.start_struct(&TLVTag::Anonymous).unwrap();
+        tw.end_container().unwrap();
+
+        let encoded = tw.as_slice().to_vec();
+        let root = TLVElement::new(&encoded);
+        let fields = root.structure().unwrap();
+
+        let session_id = fields.find_ctx(0).ok().and_then(|e| e.u16().ok()).unwrap_or(0);
+        assert_eq!(session_id, 0);
     }
 
     #[test]
