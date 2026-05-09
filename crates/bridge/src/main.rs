@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::sync::RwLock;
 
 use embassy_futures::select::select4;
-use rand::RngCore;
+use rand::rand_core::RngCore;
 
 use rs_matter::crypto::{Crypto, default_crypto};
 use rs_matter::dm::DeviceType;
