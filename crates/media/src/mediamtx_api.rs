@@ -138,9 +138,7 @@ impl MediaMtxApi {
 
         let status = resp.status();
         if !status.is_success() {
-            return Err(format!(
-                "POST /whep/{stream_name} returned {status}"
-            ));
+            return Err(format!("POST /whep/{stream_name} returned {status}"));
         }
 
         let sdp_answer = resp
@@ -155,6 +153,15 @@ impl MediaMtxApi {
         );
 
         Ok(sdp_answer)
+    }
+
+    /// Capture a JPEG snapshot for a stream.
+    ///
+    /// MediaMTX does not expose a direct "grab frame as JPEG" API in this bridge flow.
+    pub async fn snapshot_jpeg(&self, stream_name: &str) -> Result<Vec<u8>, String> {
+        Err(format!(
+            "JPEG snapshot capture is not supported by MediaMTX backend for stream '{stream_name}'"
+        ))
     }
 
     /// Check if MediaMTX is ready by polling the paths list endpoint.
@@ -195,7 +202,10 @@ mod tests {
         let header_end = loop {
             let n = stream.read(&mut chunk).await?;
             if n == 0 {
-                return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "socket closed"));
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "socket closed",
+                ));
             }
             buf.extend_from_slice(&chunk[..n]);
             if let Some(idx) = find_bytes(&buf, b"\r\n\r\n") {
@@ -239,7 +249,8 @@ mod tests {
             buf.extend_from_slice(&chunk[..n]);
         }
 
-        let body = String::from_utf8_lossy(&buf[body_start..body_start + content_length]).to_string();
+        let body =
+            String::from_utf8_lossy(&buf[body_start..body_start + content_length]).to_string();
         Ok(MockRequest {
             method,
             path,
@@ -263,7 +274,9 @@ mod tests {
 
         let handle = tokio::spawn(async move {
             let (mut socket, _) = listener.accept().await.expect("accept failed");
-            let req = read_http_request(&mut socket).await.expect("request parsing failed");
+            let req = read_http_request(&mut socket)
+                .await
+                .expect("request parsing failed");
 
             let status_text = match status {
                 200 => "OK",
@@ -317,7 +330,10 @@ mod tests {
                 .unwrap_or(""),
             "application/json"
         );
-        assert!(req.body.contains("\"source\":\"rtsp://u:p@127.0.0.2:554/live\""));
+        assert!(
+            req.body
+                .contains("\"source\":\"rtsp://u:p@127.0.0.2:554/live\"")
+        );
     }
 
     #[tokio::test]
@@ -342,8 +358,9 @@ mod tests {
 
     #[tokio::test]
     async fn whep_exchange_posts_sdp_and_returns_answer() {
-        let (whep_port, whep_handle) =
-            spawn_single_request_server(201, "v=0\r\na=answer\r\n").await.unwrap();
+        let (whep_port, whep_handle) = spawn_single_request_server(201, "v=0\r\na=answer\r\n")
+            .await
+            .unwrap();
         let api = MediaMtxApi::new("127.0.0.1", 1, whep_port);
 
         let answer = api
@@ -364,5 +381,12 @@ mod tests {
             "application/sdp"
         );
         assert_eq!(req.body, "v=0\r\na=offer\r\n");
+    }
+
+    #[tokio::test]
+    async fn snapshot_jpeg_returns_explicit_unsupported_error() {
+        let api = MediaMtxApi::new("127.0.0.1", 9997, 8889);
+        let err = api.snapshot_jpeg("cam1").await.unwrap_err();
+        assert!(err.contains("not supported"));
     }
 }

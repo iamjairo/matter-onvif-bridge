@@ -24,6 +24,14 @@ pub enum AudioCodec {
     G711U = 3,
 }
 
+/// ImageCodecEnum (enum8) — Matter 1.5 §4.20.5.3
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum ImageCodec {
+    Jpeg = 0,
+    Heic = 1,
+}
+
 /// StreamUsageEnum (enum8) — used by both clusters
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
@@ -100,7 +108,7 @@ pub struct AudioCapabilities {
 pub struct SnapshotParams {
     pub resolution: VideoResolution,
     pub max_frame_rate: u16,
-    pub image_codec: VideoCodec,
+    pub image_codec: ImageCodec,
 }
 
 /// VideoStreamStruct — allocated video stream (Matter 1.5.0.1)
@@ -136,7 +144,7 @@ pub struct AudioStream {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SnapshotStream {
     pub snapshot_stream_id: u16,
-    pub image_codec: VideoCodec,
+    pub image_codec: ImageCodec,
     pub frame_rate: u16,
     pub min_resolution: VideoResolution,
     pub max_resolution: VideoResolution,

@@ -42,6 +42,7 @@ Uses [rs-matter](https://github.com/project-chip/rs-matter) for the Matter proto
 - **Matter 1.5 camera device type** — `CameraAvStreamManagement` (0x0551) and `WebRTCTransportProvider` (0x0553)
 - **OccupancySensing cluster** — cameras advertising ONVIF `MotionAlarm` events expose a motion-sensor endpoint
 - **Dual media-server support** — choose between [go2rtc](https://github.com/AlexxIT/go2rtc) (default) or [MediaMTX](https://github.com/bluenviron/mediamtx) via a single env var (`MEDIA_SERVER`)
+- **Snapshot capture (`CaptureSnapshot`)** — bridge captures real JPEG snapshots through backend APIs when supported
 - **ONVIF WS-Discovery + static list** — automatically finds cameras on the LAN; static fallback for fixed IPs
 - **Manual RTSP fallback** — explicit per-camera RTSP configuration for cameras or networks that do not behave reliably with ONVIF discovery/integration
 - **Friendly name overrides** — map camera serial numbers or IPs to human-readable names
@@ -204,6 +205,7 @@ Use the manual RTSP path only for cameras that need it, or disable/remove the ov
 | Linux Docker bridge (`linux-bridge` profile) | ✅ Supported | ⚠️ Not currently wired as full-stack profile |
 | Local subprocess mode (`*_MODE=local`) | ✅ Supported | ⚠️ Experimental |
 | External mode (`*_MODE=external`) | ✅ Supported | ✅ Supported |
+| `CaptureSnapshot` JPEG path | ✅ via go2rtc `/api/frame.jpeg` | ⚠️ Not available via current MediaMTX bridge flow |
 
 Current Docker full-stack profile (`linux-bridge`) starts `bridge` with `depends_on: go2rtc`,
 so full containerized backend symmetry is not yet implemented.
@@ -336,10 +338,11 @@ RUST_LOG=info ./target/release/matter-onvif-bridge
 The quickest way on Pi or any Linux machine with a compiled binary:
 
 ```bash
+# run from a clone of this repo (or from a folder that also contains install-go2rtc.sh)
 sudo bash scripts/setup-pi.sh
 ```
 
-This installs go2rtc, creates an `.env` from `.env.example`, and registers a systemd service. Then:
+This installs go2rtc into `/opt/matter-onvif-bridge/bin`, creates `/opt/matter-onvif-bridge/.env` from `.env.example`, and registers a systemd service. Then:
 
 ```bash
 # Edit credentials before starting
@@ -517,6 +520,12 @@ bash scripts/reset-device.sh
 4. Bridge returns the SDP answer to the controller via `ProvideOfferResponse`
 5. ICE/DTLS negotiation completes directly between controller and media server
 
+`WebRtcTransportProvider` bridge behavior in this project:
+
+- `ProvideOffer` is the primary interoperable path and remains the bridge-default flow.
+- `SolicitOffer` is accepted but returned as `deferredOffer=true` because this bridge cannot generate server-originated offers from the current backend APIs.
+- `ProvideAnswer` and `ProvideICECandidates` are validated/accepted for active sessions; they currently do not change backend negotiation state because go2rtc/MediaMTX negotiations in this bridge are still offer-driven.
+
 ---
 
 ## Workspace Structure
@@ -579,7 +588,7 @@ matter-onvif-bridge/
 |--------|-------|-------------|
 | `scripts/install-go2rtc.sh` | `bash scripts/install-go2rtc.sh [version] [dir]` | Downloads a go2rtc binary for the current OS/arch into `./bin/go2rtc` (default) |
 | `scripts/install-mediamtx.sh` | `bash scripts/install-mediamtx.sh [version] [dir]` | Downloads a MediaMTX binary for the current OS/arch into `./bin/mediamtx` (default) |
-| `scripts/setup-pi.sh` | `sudo bash scripts/setup-pi.sh [install-dir] [user]` | Full Raspberry Pi setup: installs go2rtc, creates `.env`, registers systemd service |
+| `scripts/setup-pi.sh` | `sudo bash scripts/setup-pi.sh [install-dir] [user]` | Full Raspberry Pi setup: installs go2rtc in `<install-dir>/bin`, creates `<install-dir>/.env`, registers systemd service |
 | `scripts/reset-device.sh` | `bash scripts/reset-device.sh` | Stops the bridge, removes Matter commissioning state, optionally restarts |
 
 ---

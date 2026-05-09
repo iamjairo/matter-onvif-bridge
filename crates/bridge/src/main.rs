@@ -13,7 +13,8 @@ use std::sync::RwLock;
 use embassy_futures::select::select4;
 use rand::RngCore;
 
-use rs_matter::crypto::{default_crypto, Crypto};
+use rs_matter::crypto::{Crypto, default_crypto};
+use rs_matter::dm::DeviceType;
 use rs_matter::dm::clusters::desc::{self, ClusterHandler as _};
 use rs_matter::dm::clusters::groups::{self, ClusterHandler as _};
 use rs_matter::dm::clusters::net_comm::SharedNetworks;
@@ -21,28 +22,27 @@ use rs_matter::dm::devices::test::{DAC_PRIVKEY, TEST_DEV_ATT, TEST_DEV_COMM};
 use rs_matter::dm::devices::{DEV_TYPE_AGGREGATOR, DEV_TYPE_BRIDGED_NODE};
 use rs_matter::dm::endpoints;
 use rs_matter::dm::events::Events;
-use rs_matter::dm::networks::eth::EthNetwork;
 use rs_matter::dm::networks::SysNetifs;
+use rs_matter::dm::networks::eth::EthNetwork;
 use rs_matter::dm::subscriptions::Subscriptions;
-use rs_matter::dm::DeviceType;
 use rs_matter::dm::{
     Async, AsyncHandler, AsyncMetadata, DataModel, Dataver, EmptyHandler, Endpoint, EpClMatcher,
     Node,
 };
 use rs_matter::error::Error;
-use rs_matter::pairing::qr::QrTextType;
 use rs_matter::pairing::DiscoveryCapabilities;
+use rs_matter::pairing::qr::QrTextType;
 use rs_matter::persist::{DirKvBlobStore, SharedKvBlobStore};
 use rs_matter::respond::DefaultResponder;
 use rs_matter::sc::pase::MAX_COMM_WINDOW_TIMEOUT_SECS;
 use rs_matter::transport::MATTER_SOCKET_BIND_ADDR;
 use rs_matter::utils::select::Coalesce;
 use rs_matter::utils::storage::pooled::PooledBuffers;
-use rs_matter::{clusters, devices, root_endpoint, Matter};
+use rs_matter::{Matter, clusters, devices, root_endpoint};
 
-use matter_camera::cluster_av_stream::{AvStreamHandler, AV_STREAM_CLUSTER};
-use matter_camera::cluster_occupancy::{OccupancyDataver, OccupancyHandler, OCCUPANCY_CLUSTER};
-use matter_camera::cluster_webrtc::{WebRtcHandler, WEBRTC_CLUSTER};
+use matter_camera::cluster_av_stream::{AV_STREAM_CLUSTER, AvStreamHandler, SnapshotCaptureResult};
+use matter_camera::cluster_occupancy::{OCCUPANCY_CLUSTER, OccupancyDataver, OccupancyHandler};
+use matter_camera::cluster_webrtc::{WEBRTC_CLUSTER, WebRtcHandler};
 use matter_camera::types::CameraEndpointState;
 
 pub use rs_matter::dm::clusters::decl::bridged_device_basic_information::{
@@ -110,8 +110,8 @@ fn main() -> Result<(), Error> {
             .into_boxed_str(),
     );
     let dev_det = rs_matter::dm::clusters::basic_info::BasicInfoConfig {
-        vid: 0xFFF1,  // Test vendor ID (required for test DAC attestation)
-        pid: 0x8001,  // Test product ID
+        vid: 0xFFF1, // Test vendor ID (required for test DAC attestation)
+        pid: 0x8001, // Test product ID
         product_name: "Matter-ONVIF Camera Bridge",
         vendor_name: "matter-onvif-bridge",
         device_name: "Camera Bridge",
@@ -144,7 +144,7 @@ fn main() -> Result<(), Error> {
         .collect();
 
     // Create handlers for camera endpoints
-    let av_handlers: Vec<AvStreamHandler> = camera_states
+    let mut av_handlers: Vec<AvStreamHandler> = camera_states
         .iter()
         .map(|s| AvStreamHandler::new(Dataver::new_rand(&mut rand), Arc::clone(s)))
         .collect();
@@ -167,12 +167,8 @@ fn main() -> Result<(), Error> {
 
     // Start ONVIF + go2rtc bridge on a separate tokio thread
     let registry = onvif_client::registry::CameraRegistry::new(64);
-    let media_bridge = onvif_bridge::start_onvif_bridge(
-        &cfg,
-        &camera_states,
-        &occupancy_datavers,
-        registry,
-    );
+    let media_bridge =
+        onvif_bridge::start_onvif_bridge(&cfg, &camera_states, &occupancy_datavers, registry);
 
     // Wire SDP exchange callbacks into WebRTC handlers BEFORE building the data model.
     // Each handler gets a closure that looks up its stream name and calls the media server.
@@ -182,10 +178,13 @@ fn main() -> Result<(), Error> {
 
         handler.set_sdp_exchange(Box::new(move |sdp_offer: &str| {
             let stream_name = {
-                let names = stream_names.read().map_err(|e| format!("Lock error: {e}"))?;
-                names.get(&i).cloned().ok_or_else(|| {
-                    format!("No stream registered for endpoint slot {i}")
-                })?
+                let names = stream_names
+                    .read()
+                    .map_err(|e| format!("Lock error: {e}"))?;
+                names
+                    .get(&i)
+                    .cloned()
+                    .ok_or_else(|| format!("No stream registered for endpoint slot {i}"))?
             };
 
             // Run the async SDP exchange on a one-shot tokio runtime
@@ -200,6 +199,41 @@ fn main() -> Result<(), Error> {
                 let session = media::webrtc_session::WebRtcSession::new(stream_name, api);
                 let result = session.negotiate(sdp_offer).await?;
                 Ok((result.sdp_answer, result.ice_candidates))
+            })
+        }));
+    }
+
+    // Wire snapshot capture callbacks into AV handlers.
+    for (i, handler) in av_handlers.iter_mut().enumerate() {
+        let api = media_bridge.api.clone();
+        let stream_names = media_bridge.stream_names.clone();
+
+        handler.set_snapshot_capture(Box::new(move |request| {
+            let stream_name = {
+                let names = stream_names
+                    .read()
+                    .map_err(|e| format!("Lock error: {e}"))?;
+                names
+                    .get(&i)
+                    .cloned()
+                    .ok_or_else(|| format!("No stream registered for endpoint slot {i}"))?
+            };
+
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|e| format!("Failed to create tokio runtime: {e}"))?;
+
+            let api = api.clone();
+            rt.block_on(async move {
+                let jpeg_bytes = api.snapshot_jpeg(&stream_name).await?;
+                let resolution =
+                    jpeg_dimensions(&jpeg_bytes).unwrap_or(request.requested_resolution);
+
+                Ok(SnapshotCaptureResult {
+                    jpeg_bytes,
+                    resolution,
+                })
             })
         }));
     }
@@ -254,14 +288,68 @@ fn main() -> Result<(), Error> {
         log::info!("Device already commissioned.");
     }
 
-    let all = select4(
-        &mut transport,
-        &mut mdns,
-        &mut respond,
-        &mut dm_job,
-    );
+    let all = select4(&mut transport, &mut mdns, &mut respond, &mut dm_job);
 
     futures_lite::future::block_on(all.coalesce())
+}
+
+fn jpeg_dimensions(data: &[u8]) -> Option<matter_camera::types::VideoResolution> {
+    if data.len() < 4 || data.first() != Some(&0xFF) || data.get(1) != Some(&0xD8) {
+        return None;
+    }
+
+    let mut i = 2usize;
+    while i + 8 < data.len() {
+        if data[i] != 0xFF {
+            i += 1;
+            continue;
+        }
+
+        let marker = data[i + 1];
+        i += 2;
+
+        // Standalone markers without segment length.
+        if marker == 0xD8 || marker == 0xD9 || marker == 0x01 || (0xD0..=0xD7).contains(&marker) {
+            continue;
+        }
+
+        if i + 2 > data.len() {
+            return None;
+        }
+        let seg_len = u16::from_be_bytes([data[i], data[i + 1]]) as usize;
+        if seg_len < 2 || i + seg_len > data.len() {
+            return None;
+        }
+
+        // Baseline/progressive SOF markers.
+        if matches!(
+            marker,
+            0xC0 | 0xC1
+                | 0xC2
+                | 0xC3
+                | 0xC5
+                | 0xC6
+                | 0xC7
+                | 0xC9
+                | 0xCA
+                | 0xCB
+                | 0xCD
+                | 0xCE
+                | 0xCF
+        ) && i + 7 < data.len()
+        {
+            let height = u16::from_be_bytes([data[i + 3], data[i + 4]]);
+            let width = u16::from_be_bytes([data[i + 5], data[i + 6]]);
+            if width > 0 && height > 0 {
+                return Some(matter_camera::types::VideoResolution { width, height });
+            }
+            return None;
+        }
+
+        i += seg_len;
+    }
+
+    None
 }
 
 // ── Node definition ──
@@ -350,11 +438,10 @@ impl BridgedHandler {
 }
 
 impl bridged_device_basic_information::ClusterHandler for BridgedHandler {
-    const CLUSTER: rs_matter::dm::Cluster<'static> =
-        bridged_device_basic_information::FULL_CLUSTER
-            .with_features(0)
-            .with_attrs(with!(all))
-            .with_cmds(with!());
+    const CLUSTER: rs_matter::dm::Cluster<'static> = bridged_device_basic_information::FULL_CLUSTER
+        .with_features(0)
+        .with_attrs(with!(all))
+        .with_cmds(with!());
 
     fn dataver(&self) -> u32 {
         self.dataver.get()
@@ -482,7 +569,13 @@ fn dm_handler<'a>(
                 )
                 .chain(
                     EpClMatcher::new(Some($ep), Some(BridgedHandler::CLUSTER.id)),
-                    Async(BridgedHandler::new(Dataver::new_rand(&mut $rand), Arc::clone(&$states[$idx])).adapt()),
+                    Async(
+                        BridgedHandler::new(
+                            Dataver::new_rand(&mut $rand),
+                            Arc::clone(&$states[$idx]),
+                        )
+                        .adapt(),
+                    ),
                 )
                 .chain(
                     EpClMatcher::new(Some($ep), Some(AV_STREAM_CLUSTER.id)),
@@ -498,33 +591,97 @@ fn dm_handler<'a>(
     // Endpoints 2..=8: camera + OccupancySensing (7 slots).
     macro_rules! chain_camera_ep_with_occupancy {
         ($chain:expr, $rand:expr, $av:expr, $webrtc:expr, $occ:expr, $states:expr, $ep:expr, $idx:expr) => {
-            chain_camera_base!($chain, $rand, $av, $webrtc, $states, $ep, $idx)
-                .chain(
-                    EpClMatcher::new(Some($ep), Some(OCCUPANCY_CLUSTER.id)),
-                    Async(&$occ[$idx]),
-                )
+            chain_camera_base!($chain, $rand, $av, $webrtc, $states, $ep, $idx).chain(
+                EpClMatcher::new(Some($ep), Some(OCCUPANCY_CLUSTER.id)),
+                Async(&$occ[$idx]),
+            )
         };
     }
 
     // Endpoints 2..=8: camera + OccupancySensing (7 slots).
-    let chain = chain_camera_ep_with_occupancy!(chain, rand, av_handlers, webrtc_handlers, occupancy_handlers, camera_states, 2, 0);
-    let chain = chain_camera_ep_with_occupancy!(chain, rand, av_handlers, webrtc_handlers, occupancy_handlers, camera_states, 3, 1);
-    let chain = chain_camera_ep_with_occupancy!(chain, rand, av_handlers, webrtc_handlers, occupancy_handlers, camera_states, 4, 2);
-    let chain = chain_camera_ep_with_occupancy!(chain, rand, av_handlers, webrtc_handlers, occupancy_handlers, camera_states, 5, 3);
-    let chain = chain_camera_ep_with_occupancy!(chain, rand, av_handlers, webrtc_handlers, occupancy_handlers, camera_states, 6, 4);
-    let chain = chain_camera_ep_with_occupancy!(chain, rand, av_handlers, webrtc_handlers, occupancy_handlers, camera_states, 7, 5);
-    let chain = chain_camera_ep_with_occupancy!(chain, rand, av_handlers, webrtc_handlers, occupancy_handlers, camera_states, 8, 6);
+    let chain = chain_camera_ep_with_occupancy!(
+        chain,
+        rand,
+        av_handlers,
+        webrtc_handlers,
+        occupancy_handlers,
+        camera_states,
+        2,
+        0
+    );
+    let chain = chain_camera_ep_with_occupancy!(
+        chain,
+        rand,
+        av_handlers,
+        webrtc_handlers,
+        occupancy_handlers,
+        camera_states,
+        3,
+        1
+    );
+    let chain = chain_camera_ep_with_occupancy!(
+        chain,
+        rand,
+        av_handlers,
+        webrtc_handlers,
+        occupancy_handlers,
+        camera_states,
+        4,
+        2
+    );
+    let chain = chain_camera_ep_with_occupancy!(
+        chain,
+        rand,
+        av_handlers,
+        webrtc_handlers,
+        occupancy_handlers,
+        camera_states,
+        5,
+        3
+    );
+    let chain = chain_camera_ep_with_occupancy!(
+        chain,
+        rand,
+        av_handlers,
+        webrtc_handlers,
+        occupancy_handlers,
+        camera_states,
+        6,
+        4
+    );
+    let chain = chain_camera_ep_with_occupancy!(
+        chain,
+        rand,
+        av_handlers,
+        webrtc_handlers,
+        occupancy_handlers,
+        camera_states,
+        7,
+        5
+    );
+    let chain = chain_camera_ep_with_occupancy!(
+        chain,
+        rand,
+        av_handlers,
+        webrtc_handlers,
+        occupancy_handlers,
+        camera_states,
+        8,
+        6
+    );
     // Endpoint 9: camera-only (1 slot).
-    let chain = chain_camera_base!(chain, rand, av_handlers, webrtc_handlers, camera_states, 9, 7);
+    let chain = chain_camera_base!(
+        chain,
+        rand,
+        av_handlers,
+        webrtc_handlers,
+        camera_states,
+        9,
+        7
+    );
 
     (
         NODE,
-        endpoints::with_eth_sys(
-            &false,
-            &(),
-            &SysNetifs,
-            rand,
-            chain,
-        ),
+        endpoints::with_eth_sys(&false, &(), &SysNetifs, rand, chain),
     )
 }

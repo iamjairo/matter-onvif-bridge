@@ -46,6 +46,14 @@ impl AnyMediaApi {
         }
     }
 
+    /// Capture a JPEG snapshot for a stream.
+    pub async fn snapshot_jpeg(&self, stream_name: &str) -> Result<Vec<u8>, String> {
+        match self {
+            Self::Go2Rtc(api) => api.snapshot_jpeg(stream_name).await,
+            Self::MediaMtx(api) => api.snapshot_jpeg(stream_name).await,
+        }
+    }
+
     /// Check whether the backend is accepting requests.
     pub async fn is_ready(&self) -> bool {
         match self {

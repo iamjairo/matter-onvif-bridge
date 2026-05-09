@@ -52,17 +52,27 @@ pub const WEBRTC_CLUSTER: Cluster<'static> = Cluster::new(
     CLUSTER_ID,
     CLUSTER_REVISION,
     0, // feature_map
-    attributes!(
-        Attribute::new(Attributes::CurrentSessions as _, Access::RV, Quality::NONE)
-    ),
+    attributes!(Attribute::new(
+        Attributes::CurrentSessions as _,
+        Access::RV,
+        Quality::NONE
+    )),
     commands!(
-        Command::new(Commands::ProvideOffer as _, Some(Commands::ProvideOfferResponse as _), Access::WO),
-        Command::new(Commands::SolicitOffer as _, Some(Commands::SolicitOfferResponse as _), Access::WO),
+        Command::new(
+            Commands::ProvideOffer as _,
+            Some(Commands::ProvideOfferResponse as _),
+            Access::WO
+        ),
+        Command::new(
+            Commands::SolicitOffer as _,
+            Some(Commands::SolicitOfferResponse as _),
+            Access::WO
+        ),
         Command::new(Commands::ProvideAnswer as _, None, Access::WO),
         Command::new(Commands::ProvideIceCandidates as _, None, Access::WO),
         Command::new(Commands::EndSession as _, None, Access::WO)
     ),
-    &[], // events: none
+    &[],            // events: none
     |_, _, _| true, // with_attrs
     |_, _, _| true, // with_cmds
     |_, _, _| true, // with_events
@@ -181,7 +191,10 @@ impl Handler for WebRtcHandler {
                         }
                     }
                 } else {
-                    debug!(session_id, "ProvideOffer — no SDP exchanger, returning stub");
+                    debug!(
+                        session_id,
+                        "ProvideOffer — no SDP exchanger, returning stub"
+                    );
                     "v=0\r\n".to_string()
                 };
 
@@ -207,16 +220,87 @@ impl Handler for WebRtcHandler {
                 writer.complete()
             }
             Commands::SolicitOffer => {
-                debug!("SolicitOffer not implemented");
-                Err(ErrorCode::CommandNotFound.into())
+                let stream_usage = parse_stream_usage(fields.find_ctx(0)?.u8().unwrap_or(3));
+                let video_stream_id = parse_nullable_u16(fields.find_ctx(2)?)?;
+                let audio_stream_id = parse_nullable_u16(fields.find_ctx(3)?)?;
+
+                let mut state = self.state.write().map_err(|_| ErrorCode::Busy)?;
+                let session_id = state.next_session_id;
+                state.next_session_id += 1;
+
+                state.current_sessions.push(crate::types::WebRtcSession {
+                    id: session_id,
+                    peer_node_id: 0,
+                    peer_fabric_index: cmd.fab_idx,
+                    stream_usage,
+                    video_stream_id,
+                    audio_stream_id,
+                    metadata_options: None,
+                });
+                self.dataver.changed();
+
+                let mut writer = reply.with_command(Commands::SolicitOfferResponse as _)?;
+                let tag = writer.tag().clone();
+                let mut tw = writer.writer();
+                tw.start_struct(&tag)?;
+                tw.u16(&TLVTag::Context(0), session_id)?;
+                // Bridge limitation: this implementation cannot generate server-originated
+                // offers, so it advertises deferredOffer=true.
+                tw.bool(&TLVTag::Context(1), true)?;
+                if let Some(video_stream_id) = video_stream_id {
+                    tw.u16(&TLVTag::Context(2), video_stream_id)?;
+                }
+                if let Some(audio_stream_id) = audio_stream_id {
+                    tw.u16(&TLVTag::Context(3), audio_stream_id)?;
+                }
+                tw.end_container()?;
+                drop(tw);
+                writer.complete()
             }
             Commands::ProvideAnswer => {
-                debug!("ProvideAnswer not implemented");
-                Err(ErrorCode::CommandNotFound.into())
+                let session_id = fields
+                    .find_ctx(0)?
+                    .u16()
+                    .map_err(|_| ErrorCode::InvalidCommand)?;
+                let sdp_answer = fields
+                    .find_ctx(1)?
+                    .utf8()
+                    .map_err(|_| ErrorCode::InvalidCommand)?;
+                if sdp_answer.trim().is_empty() {
+                    return Err(ErrorCode::InvalidCommand.into());
+                }
+
+                let state = self.state.read().map_err(|_| ErrorCode::Busy)?;
+                let session_exists = state.current_sessions.iter().any(|s| s.id == session_id);
+                if !session_exists {
+                    return Err(ErrorCode::InvalidCommand.into());
+                }
+
+                debug!(
+                    session_id,
+                    sdp_len = sdp_answer.len(),
+                    "ProvideAnswer accepted (bridge stores no remote-answer state)"
+                );
+                Ok(())
             }
             Commands::ProvideIceCandidates => {
-                let session_id = fields.find_ctx(0)?.u16().unwrap_or(0);
-                debug!(session_id, "ProvideIceCandidates (stub — ignoring)");
+                let session_id = fields
+                    .find_ctx(0)?
+                    .u16()
+                    .map_err(|_| ErrorCode::InvalidCommand)?;
+                let candidates = parse_ice_candidates(&fields)?;
+
+                let state = self.state.read().map_err(|_| ErrorCode::Busy)?;
+                let session_exists = state.current_sessions.iter().any(|s| s.id == session_id);
+                if !session_exists {
+                    return Err(ErrorCode::InvalidCommand.into());
+                }
+
+                debug!(
+                    session_id,
+                    candidates = candidates.len(),
+                    "ProvideIceCandidates accepted (bridge backend does not use trickle ICE input)"
+                );
                 Ok(())
             }
             Commands::EndSession => {
@@ -259,12 +343,55 @@ fn provide_offer_stream_usage(
     crate::types::StreamUsage::LiveView
 }
 
+fn parse_stream_usage(v: u8) -> crate::types::StreamUsage {
+    match v {
+        0 => crate::types::StreamUsage::Internal,
+        1 => crate::types::StreamUsage::Recording,
+        2 => crate::types::StreamUsage::Analysis,
+        _ => crate::types::StreamUsage::LiveView,
+    }
+}
+
+fn parse_nullable_u16(elem: rs_matter::tlv::TLVElement<'_>) -> Result<Option<u16>, Error> {
+    if elem.is_empty() || elem.null().is_ok() {
+        return Ok(None);
+    }
+    elem.u16()
+        .map(Some)
+        .map_err(|_| ErrorCode::InvalidCommand.into())
+}
+
+fn parse_ice_candidates(fields: &rs_matter::tlv::TLVSequence<'_>) -> Result<Vec<String>, Error> {
+    let candidates = fields
+        .find_ctx(1)?
+        .array()
+        .map_err(|_| ErrorCode::InvalidCommand)?;
+
+    let mut parsed = Vec::new();
+    for candidate in candidates.iter() {
+        let candidate = candidate.map_err(|_| ErrorCode::InvalidCommand)?;
+        let entry = candidate
+            .structure()
+            .map_err(|_| ErrorCode::InvalidCommand)?;
+        let value = entry
+            .find_ctx(0)?
+            .utf8()
+            .map_err(|_| ErrorCode::InvalidCommand)?;
+        if value.trim().is_empty() {
+            return Err(ErrorCode::InvalidCommand.into());
+        }
+        parsed.push(value.to_string());
+    }
+
+    Ok(parsed)
+}
+
 #[cfg(test)]
 mod tests {
     use rs_matter::tlv::{TLVElement, TLVTag, TLVWrite};
     use rs_matter::utils::storage::WriteBuf;
 
-    use super::{parse_provide_offer_sdp, provide_offer_stream_usage};
+    use super::{parse_ice_candidates, parse_provide_offer_sdp, provide_offer_stream_usage};
     use crate::types::StreamUsage;
 
     fn build_provide_offer_fields(
@@ -343,5 +470,51 @@ mod tests {
         let fields = root.structure().unwrap();
 
         assert!(parse_provide_offer_sdp(&fields).is_err());
+    }
+
+    #[test]
+    fn provide_ice_candidates_parses_candidate_entries() {
+        let mut backing = vec![0_u8; 512];
+        let mut tw = WriteBuf::new(backing.as_mut_slice());
+        tw.start_struct(&TLVTag::Anonymous).unwrap();
+        tw.u16(&TLVTag::Context(0), 1).unwrap();
+        tw.start_array(&TLVTag::Context(1)).unwrap();
+        tw.start_struct(&TLVTag::Anonymous).unwrap();
+        tw.utf8(
+            &TLVTag::Context(0),
+            "candidate:1 1 UDP 0 10.0.0.2 12345 typ host",
+        )
+        .unwrap();
+        tw.end_container().unwrap();
+        tw.end_container().unwrap();
+        tw.end_container().unwrap();
+
+        let encoded = tw.as_slice().to_vec();
+        let root = TLVElement::new(&encoded);
+        let fields = root.structure().unwrap();
+
+        let parsed = parse_ice_candidates(&fields).unwrap();
+        assert_eq!(parsed.len(), 1);
+        assert!(parsed[0].starts_with("candidate:1"));
+    }
+
+    #[test]
+    fn provide_ice_candidates_rejects_empty_candidate_values() {
+        let mut backing = vec![0_u8; 512];
+        let mut tw = WriteBuf::new(backing.as_mut_slice());
+        tw.start_struct(&TLVTag::Anonymous).unwrap();
+        tw.u16(&TLVTag::Context(0), 1).unwrap();
+        tw.start_array(&TLVTag::Context(1)).unwrap();
+        tw.start_struct(&TLVTag::Anonymous).unwrap();
+        tw.utf8(&TLVTag::Context(0), " ").unwrap();
+        tw.end_container().unwrap();
+        tw.end_container().unwrap();
+        tw.end_container().unwrap();
+
+        let encoded = tw.as_slice().to_vec();
+        let root = TLVElement::new(&encoded);
+        let fields = root.structure().unwrap();
+
+        assert!(parse_ice_candidates(&fields).is_err());
     }
 }

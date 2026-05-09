@@ -355,13 +355,18 @@ fn populate_camera_state(
         )
     });
 
-    // Video params from first profile; if unavailable, advertise conservative
+    // Video params from ONVIF profiles; if unavailable, advertise conservative
     // fallback defaults so manual RTSP cameras still present coherent
     // video-only capability state.
-    if let Some(video_encoder) = camera
+    let video_encoders: Vec<_> = camera
         .profiles
-        .first()
-        .and_then(|profile| profile.video_encoder.as_ref())
+        .iter()
+        .filter_map(|profile| profile.video_encoder.as_ref())
+        .collect();
+    if let Some(video_encoder) = video_encoders
+        .iter()
+        .max_by_key(|enc| enc.width as u64 * enc.height as u64 * enc.frame_rate as u64)
+        .copied()
     {
         state.video_sensor_params = VideoSensorParams {
             sensor_width: video_encoder.width,
@@ -374,15 +379,23 @@ fn populate_camera_state(
             height: video_encoder.height,
         };
         state.current_frame_rate = video_encoder.frame_rate;
-        state.max_encoded_pixel_rate = video_encoder.width as u32
-            * video_encoder.height as u32
-            * video_encoder.frame_rate as u32;
-        state.max_concurrent_video_encoders = camera.profiles.len().max(1) as u8;
+        state.max_encoded_pixel_rate = video_encoders.iter().fold(0_u32, |acc, enc| {
+            acc.saturating_add(enc.width as u32 * enc.height as u32 * enc.frame_rate as u32)
+        });
+        state.max_concurrent_video_encoders =
+            (video_encoders.len().max(1)).min(u8::MAX as usize) as u8;
+        let derived_bandwidth = video_encoders
+            .iter()
+            .fold(0_u32, |acc, enc| acc.saturating_add(enc.bitrate));
+        state.max_network_bandwidth = if derived_bandwidth > 0 {
+            derived_bandwidth
+        } else {
+            10_000
+        };
     } else {
         apply_fallback_video_state(&mut state);
+        state.max_network_bandwidth = 10_000;
     }
-
-    state.max_network_bandwidth = 10_000;
 }
 
 fn apply_fallback_video_state(state: &mut CameraEndpointState) {
@@ -573,5 +586,53 @@ mod tests {
         assert_eq!(state.viewport.height, 1080);
         assert_eq!(state.current_frame_rate, 20);
         assert_eq!(state.max_concurrent_video_encoders, 1);
+    }
+
+    #[test]
+    fn populate_camera_state_aggregates_multiple_video_encoders() {
+        let state = Arc::new(RwLock::new(CameraEndpointState::default()));
+        let camera = sample_camera(vec![
+            MediaProfile {
+                token: "sub".into(),
+                name: "Sub".into(),
+                video_encoder: Some(VideoEncoderConfig {
+                    codec: "h264".into(),
+                    width: 640,
+                    height: 360,
+                    frame_rate: 15,
+                    bitrate: 512,
+                    quality: 5.0,
+                }),
+                audio_encoder: None,
+                ptz_config_token: None,
+            },
+            MediaProfile {
+                token: "main".into(),
+                name: "Main".into(),
+                video_encoder: Some(VideoEncoderConfig {
+                    codec: "h264".into(),
+                    width: 1920,
+                    height: 1080,
+                    frame_rate: 20,
+                    bitrate: 4_000,
+                    quality: 5.0,
+                }),
+                audio_encoder: None,
+                ptz_config_token: None,
+            },
+        ]);
+
+        populate_camera_state(&state, &camera, Some("Front Door"));
+
+        let state = state.read().unwrap();
+        assert_eq!(state.video_sensor_params.sensor_width, 1920);
+        assert_eq!(state.video_sensor_params.sensor_height, 1080);
+        assert_eq!(state.current_frame_rate, 20);
+        assert_eq!(state.max_concurrent_video_encoders, 2);
+        assert_eq!(state.max_network_bandwidth, 4_512);
+        assert!(
+            state.max_encoded_pixel_rate
+                >= (1920_u32 * 1080_u32 * 20_u32) + (640_u32 * 360_u32 * 15_u32)
+        );
     }
 }
