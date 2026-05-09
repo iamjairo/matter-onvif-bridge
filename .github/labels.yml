@@ -1,0 +1,111 @@
+# GitHub Labels for matter-onvif-bridge
+#
+# Apply these labels with the GitHub CLI:
+#   gh label create --force --name "..." --color "..." --description "..."
+# Or use a tool like github-label-sync:
+#   npx github-label-sync --labels .github/labels.yml iamjairo/matter-onvif-bridge
+
+# ── Type ─────────────────────────────────────────────────────────────────────
+- name: "bug"
+  color: "d73a4a"
+  description: "Something isn't working correctly"
+
+- name: "enhancement"
+  color: "a2eeef"
+  description: "New feature or improvement request"
+
+- name: "documentation"
+  color: "0075ca"
+  description: "Improvements or additions to docs / README"
+
+- name: "question"
+  color: "d876e3"
+  description: "Further information is requested"
+
+- name: "refactor"
+  color: "e4e669"
+  description: "Code cleanup with no behaviour change"
+
+- name: "test"
+  color: "bfd4f2"
+  description: "Adding or improving tests"
+
+# ── Status ────────────────────────────────────────────────────────────────────
+- name: "duplicate"
+  color: "cfd3d7"
+  description: "This issue or PR already exists"
+
+- name: "wontfix"
+  color: "ffffff"
+  description: "This will not be worked on"
+
+- name: "help wanted"
+  color: "008672"
+  description: "Extra attention is needed — good for contributors"
+
+- name: "good first issue"
+  color: "7057ff"
+  description: "Good for newcomers to the project"
+
+- name: "blocked"
+  color: "e11d48"
+  description: "Blocked by another issue, PR, or external dependency"
+
+- name: "in progress"
+  color: "fbca04"
+  description: "Work is actively underway"
+
+- name: "ready for review"
+  color: "0e8a16"
+  description: "PR is complete and awaiting code review"
+
+# ── Area ──────────────────────────────────────────────────────────────────────
+- name: "area: matter"
+  color: "1d76db"
+  description: "Matter protocol, clusters, commissioning, rs-matter"
+
+- name: "area: onvif"
+  color: "0052cc"
+  description: "ONVIF discovery, WS-Discovery, camera client"
+
+- name: "area: media"
+  color: "5319e7"
+  description: "go2rtc, MediaMTX, WebRTC, SDP/ICE"
+
+- name: "area: motion"
+  color: "c5def5"
+  description: "ONVIF MotionAlarm, OccupancySensing cluster"
+
+- name: "area: docker"
+  color: "0db7ed"
+  description: "Dockerfile, docker-compose, container deployment"
+
+- name: "area: raspberry-pi"
+  color: "c91c3e"
+  description: "Raspberry Pi deployment, cross-compilation, setup-pi.sh"
+
+- name: "area: config"
+  color: "f9d0c4"
+  description: "Environment variables, .env, config parsing"
+
+- name: "area: ci"
+  color: "cccccc"
+  description: "GitHub Actions, Dependabot, CI/CD"
+
+# ── Priority ──────────────────────────────────────────────────────────────────
+- name: "priority: high"
+  color: "b60205"
+  description: "Must fix or address urgently"
+
+- name: "priority: medium"
+  color: "e4a813"
+  description: "Important but not blocking"
+
+- name: "priority: low"
+  color: "c2e0c6"
+  description: "Nice to have"
+
+# ── Dependencies ──────────────────────────────────────────────────────────────
+- name: "dependencies"
+  color: "0366d6"
+  description: "Dependency version updates (Dependabot PRs)"
