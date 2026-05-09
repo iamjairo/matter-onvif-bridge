@@ -232,3 +232,124 @@ impl Config {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Mutex, OnceLock};
+
+    use super::{Config, MediaConfig, MediaMtxMode};
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn media_env_vars() -> &'static [&'static str] {
+        &[
+            "MEDIA_SERVER",
+            "GO2RTC_MODE",
+            "GO2RTC_PATH",
+            "GO2RTC_HOST",
+            "GO2RTC_API_PORT",
+            "GO2RTC_WEBRTC_PORT",
+            "MEDIAMTX_MODE",
+            "MEDIAMTX_PATH",
+            "MEDIAMTX_HOST",
+            "MEDIAMTX_API_PORT",
+            "MEDIAMTX_WHEP_PORT",
+        ]
+    }
+
+    fn snapshot_env() -> Vec<(String, Option<String>)> {
+        media_env_vars()
+            .iter()
+            .map(|key| ((*key).to_string(), std::env::var(key).ok()))
+            .collect()
+    }
+
+    fn restore_env(snapshot: &[(String, Option<String>)]) {
+        for (key, value) in snapshot {
+            if let Some(value) = value {
+                std::env::set_var(key, value);
+            } else {
+                std::env::remove_var(key);
+            }
+        }
+    }
+
+    fn clear_media_env() {
+        for key in media_env_vars() {
+            std::env::remove_var(key);
+        }
+    }
+
+    #[test]
+    fn default_media_backend_is_go2rtc() {
+        let _guard = env_lock().lock().unwrap();
+        let snapshot = snapshot_env();
+        clear_media_env();
+
+        let cfg = Config::from_env();
+        assert!(matches!(cfg.media, MediaConfig::Go2Rtc(_)));
+
+        restore_env(&snapshot);
+    }
+
+    #[test]
+    fn media_server_env_selects_mediamtx() {
+        let _guard = env_lock().lock().unwrap();
+        let snapshot = snapshot_env();
+        clear_media_env();
+        std::env::set_var("MEDIA_SERVER", "mediamtx");
+
+        let cfg = Config::from_env();
+        assert!(matches!(cfg.media, MediaConfig::MediaMtx(_)));
+
+        restore_env(&snapshot);
+    }
+
+    #[test]
+    fn mediamtx_mode_parses_local_and_external() {
+        let _guard = env_lock().lock().unwrap();
+        let snapshot = snapshot_env();
+        clear_media_env();
+        std::env::set_var("MEDIA_SERVER", "mediamtx");
+        std::env::set_var("MEDIAMTX_MODE", "local");
+
+        let local_cfg = Config::from_env();
+        match local_cfg.media {
+            MediaConfig::MediaMtx(cfg) => assert!(matches!(cfg.mode, MediaMtxMode::Local)),
+            _ => panic!("expected MediaMtx config"),
+        }
+
+        std::env::set_var("MEDIAMTX_MODE", "external");
+        let external_cfg = Config::from_env();
+        match external_cfg.media {
+            MediaConfig::MediaMtx(cfg) => assert!(matches!(cfg.mode, MediaMtxMode::External)),
+            _ => panic!("expected MediaMtx config"),
+        }
+
+        restore_env(&snapshot);
+    }
+
+    #[test]
+    fn invalid_mediamtx_ports_fall_back_to_defaults() {
+        let _guard = env_lock().lock().unwrap();
+        let snapshot = snapshot_env();
+        clear_media_env();
+        std::env::set_var("MEDIA_SERVER", "mediamtx");
+        std::env::set_var("MEDIAMTX_API_PORT", "not-a-port");
+        std::env::set_var("MEDIAMTX_WHEP_PORT", "-1");
+
+        let cfg = Config::from_env();
+        match cfg.media {
+            MediaConfig::MediaMtx(cfg) => {
+                assert_eq!(cfg.api_port, 9997);
+                assert_eq!(cfg.whep_port, 8889);
+            }
+            _ => panic!("expected MediaMtx config"),
+        }
+
+        restore_env(&snapshot);
+    }
+}

@@ -16,6 +16,7 @@ Uses [rs-matter](https://github.com/project-chip/rs-matter) for the Matter proto
 - [Quick Start](#quick-start)
 - [Requirements](#requirements)
 - [Configuration](#configuration)
+- [Support Matrix](#support-matrix)
 - [Deployment](#deployment)
   - [macOS — Native](#macos--native)
   - [Linux — Native](#linux--native)
@@ -143,6 +144,9 @@ All settings come from environment variables (use a `.env` file — see `.env.ex
 | `MEDIAMTX_API_PORT` | `9997` | MediaMTX HTTP API port |
 | `MEDIAMTX_WHEP_PORT` | `8889` | MediaMTX WHEP (WebRTC) port |
 
+> `MEDIAMTX_MODE=local` is currently **experimental** and less battle-tested than
+> Docker/external mode.
+
 ### Matter Settings
 
 | Variable | Default | Description |
@@ -152,6 +156,20 @@ All settings come from environment variables (use a `.env` file — see `.env.ex
 | `MATTER_DISCRIMINATOR` | `3840` | Commissioning discriminator |
 | `MATTER_STORAGE_PATH` | `.matter-storage` | Directory for persistent commissioning state |
 | `LOG_LEVEL` | `info` | Log verbosity: `trace`, `debug`, `info`, `warn`, `error` |
+
+---
+
+## Support Matrix
+
+| Area | go2rtc | MediaMTX |
+|------|--------|----------|
+| Native bridge (`cargo run`) | ✅ Supported | ✅ Supported |
+| Linux Docker bridge (`linux-bridge` profile) | ✅ Supported | ⚠️ Not currently wired as full-stack profile |
+| Local subprocess mode (`*_MODE=local`) | ✅ Supported | ⚠️ Experimental |
+| External mode (`*_MODE=external`) | ✅ Supported | ✅ Supported |
+
+Current Docker full-stack profile (`linux-bridge`) starts `bridge` with `depends_on: go2rtc`,
+so full containerized backend symmetry is not yet implemented.
 
 ---
 
@@ -192,17 +210,25 @@ cargo run --release -p matter-onvif-bridge
 
 ### Linux — Docker (Full Stack)
 
-On Linux, `--network=host` lets the bridge container reach LAN multicast directly. The `linux-bridge` Compose profile adds the bridge service:
+On Linux, `--network=host` lets the bridge container reach LAN multicast directly.
+The current `linux-bridge` profile is **go2rtc-backed full stack**:
 
 ```bash
 # Build the bridge image (first time or after code changes)
 docker compose --profile linux-bridge build
 
-# Start go2rtc + bridge together
+# Start go2rtc + bridge together (current full-stack Docker path)
 docker compose --profile linux-bridge up -d
 
 # View bridge logs
 docker compose logs -f bridge
+```
+
+For MediaMTX on Linux today, run the bridge natively and run MediaMTX in Docker:
+
+```bash
+docker compose --profile mediamtx up -d
+MEDIA_SERVER=mediamtx cargo run --release -p matter-onvif-bridge
 ```
 
 > Docker host-networking is **not available on macOS**. Docker Desktop runs in a VM and
@@ -589,4 +615,3 @@ Dependabot is configured to open automated PRs for Cargo dependency updates, Doc
 ## License
 
 MIT — see [LICENSE](LICENSE) for the full text.
-

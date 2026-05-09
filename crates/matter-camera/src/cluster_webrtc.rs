@@ -153,9 +153,8 @@ impl Handler for WebRtcHandler {
                 //   ctx(2)  ICEServers — optional list (not read; go2rtc/MediaMTX handles STUN)
                 //   ctx(3)  ICETransportPolicy — optional enum8 (not read)
                 //   ctx(4)  MetadataOptions — optional bitmap8 (not read)
-                let sdp_offer = fields.find_ctx(1)?.utf8().unwrap_or("");
-                // StreamUsage is not a ProvideOffer field; default to LiveView.
-                let stream_usage = crate::types::StreamUsage::LiveView;
+                let sdp_offer = parse_provide_offer_sdp(&fields)?;
+                let stream_usage = provide_offer_stream_usage(&fields);
 
                 let mut state = self.state.write().map_err(|_| ErrorCode::Busy)?;
                 let session_id = state.next_session_id;
@@ -239,3 +238,110 @@ impl Handler for WebRtcHandler {
 }
 
 impl NonBlockingHandler for WebRtcHandler {}
+
+fn parse_provide_offer_sdp<'a>(fields: &rs_matter::tlv::TLVElement<'a>) -> Result<&'a str, Error> {
+    let sdp = fields
+        .find_ctx(1)?
+        .utf8()
+        .map_err(|_| ErrorCode::InvalidCommand)?;
+
+    if sdp.trim().is_empty() {
+        return Err(ErrorCode::InvalidCommand.into());
+    }
+
+    Ok(sdp)
+}
+
+fn provide_offer_stream_usage(
+    _fields: &rs_matter::tlv::TLVElement<'_>,
+) -> crate::types::StreamUsage {
+    // StreamUsage is not a ProvideOffer field in Matter 1.5. Always default to LiveView.
+    crate::types::StreamUsage::LiveView
+}
+
+#[cfg(test)]
+mod tests {
+    use rs_matter::tlv::{TLVElement, TLVTag, TLVWrite};
+    use rs_matter::utils::storage::WriteBuf;
+
+    use super::{parse_provide_offer_sdp, provide_offer_stream_usage};
+    use crate::types::StreamUsage;
+
+    fn build_provide_offer_fields(
+        sdp_ctx1: Option<&str>,
+        ctx2_u8: Option<u8>,
+        ctx3_u8: Option<u8>,
+    ) -> Vec<u8> {
+        let mut backing = vec![0_u8; 256];
+        let mut tw = WriteBuf::new(backing.as_mut_slice());
+        tw.start_struct(&TLVTag::Anonymous).unwrap();
+
+        if let Some(sdp) = sdp_ctx1 {
+            tw.utf8(&TLVTag::Context(1), sdp).unwrap();
+        }
+        if let Some(v) = ctx2_u8 {
+            tw.u8(&TLVTag::Context(2), v).unwrap();
+        }
+        if let Some(v) = ctx3_u8 {
+            tw.u8(&TLVTag::Context(3), v).unwrap();
+        }
+
+        tw.end_container().unwrap();
+
+        tw.as_slice().to_vec()
+    }
+
+    #[test]
+    fn provide_offer_reads_sdp_from_ctx1() {
+        let encoded =
+            build_provide_offer_fields(Some("v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\n"), None, None);
+        let root = TLVElement::new(&encoded);
+        let fields = root.structure().unwrap();
+
+        let sdp = parse_provide_offer_sdp(&fields).unwrap();
+        assert_eq!(sdp, "v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\n");
+    }
+
+    #[test]
+    fn provide_offer_allows_optional_fields_to_be_omitted() {
+        let encoded = build_provide_offer_fields(Some("v=0\r\n"), None, None);
+        let root = TLVElement::new(&encoded);
+        let fields = root.structure().unwrap();
+
+        let sdp = parse_provide_offer_sdp(&fields).unwrap();
+        assert_eq!(sdp, "v=0\r\n");
+    }
+
+    #[test]
+    fn provide_offer_ctx2_does_not_change_stream_usage() {
+        let encoded = build_provide_offer_fields(Some("v=0\r\n"), Some(99), Some(7));
+        let root = TLVElement::new(&encoded);
+        let fields = root.structure().unwrap();
+
+        assert_eq!(provide_offer_stream_usage(&fields), StreamUsage::LiveView);
+    }
+
+    #[test]
+    fn provide_offer_missing_sdp_fails() {
+        let encoded = build_provide_offer_fields(None, None, None);
+        let root = TLVElement::new(&encoded);
+        let fields = root.structure().unwrap();
+
+        assert!(parse_provide_offer_sdp(&fields).is_err());
+    }
+
+    #[test]
+    fn provide_offer_malformed_sdp_field_fails() {
+        let mut backing = vec![0_u8; 256];
+        let mut tw = WriteBuf::new(backing.as_mut_slice());
+        tw.start_struct(&TLVTag::Anonymous).unwrap();
+        tw.u8(&TLVTag::Context(1), 42).unwrap();
+        tw.end_container().unwrap();
+
+        let encoded = tw.as_slice().to_vec();
+        let root = TLVElement::new(&encoded);
+        let fields = root.structure().unwrap();
+
+        assert!(parse_provide_offer_sdp(&fields).is_err());
+    }
+}
