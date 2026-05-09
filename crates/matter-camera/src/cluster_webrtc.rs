@@ -508,7 +508,11 @@ mod tests {
         let root = TLVElement::new(&encoded);
         let fields = root.structure().unwrap();
 
-        let session_id = fields.find_ctx(0).ok().and_then(|e| e.u16().ok()).unwrap_or(0);
+        let session_id = fields
+            .find_ctx(0)
+            .ok()
+            .and_then(|e| e.u16().ok())
+            .unwrap_or(0);
         assert_eq!(session_id, 0);
     }
 

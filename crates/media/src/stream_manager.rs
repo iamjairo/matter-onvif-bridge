@@ -23,10 +23,14 @@ pub async fn run_stream_manager(
         match rx.recv().await {
             Ok(RegistryEvent::Added(camera)) | Ok(RegistryEvent::Updated(camera)) => {
                 let stream_name = sanitize_stream_name(&camera.id);
-                let rtsp_url = inject_credentials(&camera.stream_uri, onvif_username, onvif_password);
+                let rtsp_url =
+                    inject_credentials(&camera.stream_uri, onvif_username, onvif_password);
 
                 if rtsp_url.is_empty() {
-                    error!(camera_id = camera.id, "No RTSP URL for camera, skipping stream registration");
+                    error!(
+                        camera_id = camera.id,
+                        "No RTSP URL for camera, skipping stream registration"
+                    );
                     continue;
                 }
 
@@ -43,8 +47,7 @@ pub async fn run_stream_manager(
                     Ok(()) => {
                         info!(
                             camera_id = camera.id,
-                            stream_name,
-                            "Registered RTSP stream in go2rtc"
+                            stream_name, "Registered RTSP stream in go2rtc"
                         );
                     }
                     Err(e) => {
@@ -75,7 +78,10 @@ pub async fn run_stream_manager(
                 }
             }
             Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                error!(missed = n, "Stream manager missed events — registry channel lagged");
+                error!(
+                    missed = n,
+                    "Stream manager missed events — registry channel lagged"
+                );
             }
             Err(tokio::sync::broadcast::error::RecvError::Closed) => {
                 info!("Registry channel closed, stream manager exiting");
@@ -138,7 +144,11 @@ mod tests {
             "rtsp://admin:pass@192.168.1.1:554/stream"
         );
         assert_eq!(
-            inject_credentials("rtsp://user:existing@192.168.1.1:554/stream", "admin", "pass"),
+            inject_credentials(
+                "rtsp://user:existing@192.168.1.1:554/stream",
+                "admin",
+                "pass"
+            ),
             "rtsp://user:existing@192.168.1.1:554/stream"
         );
         assert_eq!(inject_credentials("", "admin", "pass"), "");

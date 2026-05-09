@@ -73,10 +73,7 @@ impl Go2RtcManager {
             }
 
             if start.elapsed() > timeout {
-                return Err(format!(
-                    "go2rtc not ready after {}s",
-                    timeout.as_secs()
-                ));
+                return Err(format!("go2rtc not ready after {}s", timeout.as_secs()));
             }
 
             sleep(Duration::from_millis(500)).await;
@@ -109,16 +106,14 @@ impl Go2RtcManager {
                     .spawn();
 
                 match result {
-                    Ok(mut child) => {
-                        match child.wait().await {
-                            Ok(status) => {
-                                warn!(exit_code = ?status.code(), "go2rtc exited, restarting in 3s...");
-                            }
-                            Err(e) => {
-                                error!("go2rtc process error: {e}");
-                            }
+                    Ok(mut child) => match child.wait().await {
+                        Ok(status) => {
+                            warn!(exit_code = ?status.code(), "go2rtc exited, restarting in 3s...");
                         }
-                    }
+                        Err(e) => {
+                            error!("go2rtc process error: {e}");
+                        }
+                    },
                     Err(e) => {
                         error!("Failed to spawn go2rtc: {e}");
                     }

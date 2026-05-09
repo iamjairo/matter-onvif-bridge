@@ -153,10 +153,7 @@ pub async fn connect_camera(
 
     // Stream URI for the first profile
     let stream_uri = if let Some(first_profile) = raw_profiles.first() {
-        match client
-            .get_stream_uri(media_url, &first_profile.token)
-            .await
-        {
+        match client.get_stream_uri(media_url, &first_profile.token).await {
             Ok(uri) => uri.uri,
             Err(e) => {
                 warn!("GetStreamUri failed: {e}");

@@ -45,10 +45,7 @@ impl WebRtcSession {
             "Negotiating SDP with go2rtc"
         );
 
-        let sdp_answer = self
-            .api
-            .exchange_sdp(&self.stream_name, sdp_offer)
-            .await?;
+        let sdp_answer = self.api.exchange_sdp(&self.stream_name, sdp_offer).await?;
 
         let ice_candidates = media_api::extract_ice_candidates(&sdp_answer);
 
