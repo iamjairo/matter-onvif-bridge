@@ -25,7 +25,7 @@ use onvif_client::registry::{CameraRegistry, RegistryEvent};
 use onvif_client::types::CameraDevice;
 use tokio::sync::mpsc;
 
-use crate::config::{self, Config, MediaConfig};
+use crate::config::{self, Config, ManualRtspCameraConfig, MediaConfig};
 use crate::slot_persistence::SlotMap;
 use crate::{MAX_CAMERAS, WITH_OCCUPANCY_CAMERAS};
 
@@ -92,6 +92,7 @@ pub fn start_onvif_bridge(
     let onvif_username = cfg.onvif.username.clone();
     let onvif_password = cfg.onvif.password.clone();
     let camera_names = cfg.onvif.camera_names.clone();
+    let manual_rtsp_cameras = cfg.manual_rtsp_cameras.clone();
     let storage_dir = std::path::PathBuf::from(&cfg.matter.storage_path);
     let media_cfg = cfg.media.clone();
 
@@ -168,6 +169,16 @@ pub fn start_onvif_bridge(
                 );
                 // Tracks the spawned motion pump per slot so we can abort on remove.
                 let mut motion_tasks: HashMap<usize, tokio::task::JoinHandle<()>> = HashMap::new();
+
+                if !manual_rtsp_cameras.is_empty() {
+                    log::info!(
+                        "Registering {} manual RTSP fallback camera(s)",
+                        manual_rtsp_cameras.len()
+                    );
+                    for camera in &manual_rtsp_cameras {
+                        registry_clone.add_camera(manual_rtsp_camera_device(camera));
+                    }
+                }
 
                 loop {
                     tokio::select! {
@@ -374,4 +385,82 @@ fn sanitize_stream_name(id: &str) -> String {
             }
         })
         .collect()
+}
+
+fn manual_rtsp_camera_device(camera: &ManualRtspCameraConfig) -> CameraDevice {
+    let id = manual_camera_id(camera);
+    let (host, port) = parse_rtsp_host_and_port(&camera.rtsp_url);
+
+    CameraDevice {
+        id: id.clone(),
+        host,
+        port,
+        device_info: onvif_client::types::DeviceInfo {
+            manufacturer: "Manual RTSP".into(),
+            model: camera.name.clone(),
+            firmware_version: "manual-rtsp".into(),
+            serial_number: id.clone(),
+            hardware_id: "manual-rtsp".into(),
+        },
+        profiles: Vec::new(),
+        stream_uri: camera.rtsp_url.clone(),
+        events_url: None,
+        supports_motion: false,
+    }
+}
+
+fn manual_camera_id(camera: &ManualRtspCameraConfig) -> String {
+    if let Some(stable_id) = camera.stable_id.as_deref() {
+        return format!("manual:{stable_id}");
+    }
+
+    format!("manual:{}", derived_manual_camera_key(camera))
+}
+
+fn derived_manual_camera_key(camera: &ManualRtspCameraConfig) -> String {
+    let endpoint_hint = camera
+        .rtsp_url
+        .split_once("://")
+        .map(|(_, rest)| rest)
+        .unwrap_or(&camera.rtsp_url)
+        .rsplit('@')
+        .next()
+        .unwrap_or(&camera.rtsp_url);
+
+    format!(
+        "{}-{}",
+        sanitize_stream_name(&camera.name),
+        sanitize_stream_name(endpoint_hint)
+    )
+}
+
+fn parse_rtsp_host_and_port(rtsp_url: &str) -> (String, u16) {
+    let authority = rtsp_url
+        .split_once("://")
+        .map(|(_, rest)| rest)
+        .unwrap_or(rtsp_url)
+        .split('/')
+        .next()
+        .unwrap_or(rtsp_url)
+        .rsplit('@')
+        .next()
+        .unwrap_or(rtsp_url);
+
+    if let Some(rest) = authority.strip_prefix('[') {
+        if let Some((host, remainder)) = rest.split_once(']') {
+            let port = remainder
+                .strip_prefix(':')
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(554);
+            return (host.to_string(), port);
+        }
+    }
+
+    if let Some((host, port)) = authority.rsplit_once(':') {
+        if let Ok(port) = port.parse::<u16>() {
+            return (host.to_string(), port);
+        }
+    }
+
+    (authority.to_string(), 554)
 }

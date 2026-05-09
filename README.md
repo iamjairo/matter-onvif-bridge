@@ -43,6 +43,7 @@ Uses [rs-matter](https://github.com/project-chip/rs-matter) for the Matter proto
 - **OccupancySensing cluster** — cameras advertising ONVIF `MotionAlarm` events expose a motion-sensor endpoint
 - **Dual media-server support** — choose between [go2rtc](https://github.com/AlexxIT/go2rtc) (default) or [MediaMTX](https://github.com/bluenviron/mediamtx) via a single env var (`MEDIA_SERVER`)
 - **ONVIF WS-Discovery + static list** — automatically finds cameras on the LAN; static fallback for fixed IPs
+- **Manual RTSP fallback** — explicit per-camera RTSP configuration for cameras or networks that do not behave reliably with ONVIF discovery/integration
 - **Friendly name overrides** — map camera serial numbers or IPs to human-readable names
 - **Persistent slot mapping** — camera ↔ Matter endpoint assignment survives restarts (Google Home room assignments stay stable)
 - **Motion event pump** — long-polls ONVIF PullPoint subscriptions and propagates `MotionAlarm` events to the OccupancySensing cluster
@@ -123,6 +124,41 @@ All settings come from environment variables (use a `.env` file — see `.env.ex
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `MEDIA_SERVER` | `go2rtc` | `go2rtc` or `mediamtx` |
+
+### Manual RTSP fallback
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MANUAL_RTSP_CAMERAS` | *(empty)* | Explicit fallback cameras: `name\|rtsp_url[\|stable_id];name\|rtsp_url[\|stable_id]` |
+
+`MANUAL_RTSP_CAMERAS` is intended for homelab reliability, not automatic abstraction:
+
+- `name` and `rtsp_url` are required; `stable_id` is optional but recommended.
+- Camera entries are separated by `;`; fields are separated by `|`.
+- For simplicity, `name` must not contain `|` or `;`.
+- Manual RTSP cameras bypass ONVIF discovery and do **not** change existing `ONVIF_DISCOVERY_MODE` / `ONVIF_STATIC_CAMERAS` behavior.
+- When ONVIF metadata/events are unavailable, manual cameras are exposed as **reduced-capability, video-only** cameras:
+  - no implied motion/event support
+  - no ONVIF metadata enrichment
+  - no ONVIF event pump
+- Prefer embedding RTSP credentials directly in the URL for explicit, predictable behavior.
+
+Example:
+
+```env
+MANUAL_RTSP_CAMERAS=Front Door|rtsp://user:pass@192.168.1.10:554/stream1|front-door;Garage|rtsp://user:pass@192.168.1.11:554/live
+```
+
+#### Manual vs ONVIF duplication / precedence
+
+V1 does **not** try to deduplicate a manual RTSP entry against an ONVIF-discovered camera automatically.
+
+- A manual RTSP entry is always added as its own explicit fallback camera identity.
+- ONVIF discovery and static-host cameras continue to work unchanged.
+- If you define the same physical camera both manually and via ONVIF, the bridge will expose **two** bridged cameras.
+- Manual fallback entries therefore do **not** override, suppress, or take precedence over ONVIF-discovered cameras.
+
+Use the manual RTSP path only for cameras that need it, or disable/remove the overlapping ONVIF definition to avoid duplicates.
 
 #### go2rtc (default)
 

@@ -4,9 +4,17 @@ use std::env;
 #[derive(Debug, Clone)]
 pub struct Config {
     pub onvif: OnvifConfig,
+    pub manual_rtsp_cameras: Vec<ManualRtspCameraConfig>,
     pub media: MediaConfig,
     pub matter: MatterConfig,
     pub log_level: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManualRtspCameraConfig {
+    pub name: String,
+    pub rtsp_url: String,
+    pub stable_id: Option<String>,
 }
 
 /// Which media server handles RTSP→WebRTC bridging.
@@ -84,6 +92,7 @@ impl Default for Config {
                 static_cameras: Vec::new(),
                 camera_names: HashMap::new(),
             },
+            manual_rtsp_cameras: Vec::new(),
             media: MediaConfig::Go2Rtc(Go2RtcConfig {
                 mode: Go2RtcMode::External,
                 path: "./bin/go2rtc".into(),
@@ -107,25 +116,12 @@ impl Config {
         let defaults = Self::default();
 
         let static_cameras_str = env::var("ONVIF_STATIC_CAMERAS").unwrap_or_default();
-        let static_cameras: Vec<String> = if static_cameras_str.is_empty() {
-            Vec::new()
-        } else {
-            static_cameras_str.split(',').map(|s| s.trim().to_string()).collect()
-        };
+        let static_cameras = parse_csv_list(&static_cameras_str);
 
         // ONVIF_CAMERA_NAMES="192.168.86.5=Front Door,192.168.86.2=Backyard"
-        let camera_names: HashMap<String, String> = env::var("ONVIF_CAMERA_NAMES")
-            .unwrap_or_default()
-            .split(',')
-            .filter_map(|entry| {
-                let entry = entry.trim();
-                if entry.is_empty() {
-                    return None;
-                }
-                let (host, name) = entry.split_once('=')?;
-                Some((host.trim().to_string(), name.trim().to_string()))
-            })
-            .collect();
+        let camera_names = parse_camera_names(&env::var("ONVIF_CAMERA_NAMES").unwrap_or_default());
+        let manual_rtsp_cameras =
+            parse_manual_rtsp_cameras(&env::var("MANUAL_RTSP_CAMERAS").unwrap_or_default());
 
         let discovery_mode = match env::var("ONVIF_DISCOVERY_MODE")
             .unwrap_or_default()
@@ -211,6 +207,7 @@ impl Config {
                 static_cameras,
                 camera_names,
             },
+            manual_rtsp_cameras,
             media,
             matter: MatterConfig {
                 port: env::var("MATTER_PORT")
@@ -233,18 +230,68 @@ impl Config {
     }
 }
 
+fn parse_csv_list(value: &str) -> Vec<String> {
+    value
+        .split(',')
+        .filter_map(|entry| {
+            let entry = entry.trim();
+            (!entry.is_empty()).then(|| entry.to_string())
+        })
+        .collect()
+}
+
+fn parse_camera_names(value: &str) -> HashMap<String, String> {
+    value
+        .split(',')
+        .filter_map(|entry| {
+            let entry = entry.trim();
+            if entry.is_empty() {
+                return None;
+            }
+            let (host, name) = entry.split_once('=')?;
+            Some((host.trim().to_string(), name.trim().to_string()))
+        })
+        .collect()
+}
+
+fn parse_manual_rtsp_cameras(value: &str) -> Vec<ManualRtspCameraConfig> {
+    value
+        .split(';')
+        .filter_map(|entry| {
+            let mut parts = entry.splitn(3, '|').map(str::trim);
+            let name = parts.next()?;
+            let rtsp_url = parts.next()?;
+            if name.is_empty() || rtsp_url.is_empty() {
+                return None;
+            }
+
+            let stable_id = parts
+                .next()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned);
+
+            Some(ManualRtspCameraConfig {
+                name: name.to_string(),
+                rtsp_url: rtsp_url.to_string(),
+                stable_id,
+            })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::{Mutex, OnceLock};
 
-    use super::{Config, MediaConfig, MediaMtxMode};
+    use super::{Config, ManualRtspCameraConfig, MediaConfig, MediaMtxMode};
 
     fn env_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
     }
 
-    fn media_env_vars() -> &'static [&'static str] {
+    fn config_env_vars() -> &'static [&'static str] {
         &[
             "MEDIA_SERVER",
             "GO2RTC_MODE",
@@ -257,11 +304,12 @@ mod tests {
             "MEDIAMTX_HOST",
             "MEDIAMTX_API_PORT",
             "MEDIAMTX_WHEP_PORT",
+            "MANUAL_RTSP_CAMERAS",
         ]
     }
 
     fn snapshot_env() -> Vec<(String, Option<String>)> {
-        media_env_vars()
+        config_env_vars()
             .iter()
             .map(|key| ((*key).to_string(), std::env::var(key).ok()))
             .collect()
@@ -277,8 +325,8 @@ mod tests {
         }
     }
 
-    fn clear_media_env() {
-        for key in media_env_vars() {
+    fn clear_config_env() {
+        for key in config_env_vars() {
             unsafe { std::env::remove_var(key) };
         }
     }
@@ -287,7 +335,7 @@ mod tests {
     fn default_media_backend_is_go2rtc() {
         let _guard = env_lock().lock().unwrap();
         let snapshot = snapshot_env();
-        clear_media_env();
+        clear_config_env();
 
         let cfg = Config::from_env();
         assert!(matches!(cfg.media, MediaConfig::Go2Rtc(_)));
@@ -299,7 +347,7 @@ mod tests {
     fn media_server_env_selects_mediamtx() {
         let _guard = env_lock().lock().unwrap();
         let snapshot = snapshot_env();
-        clear_media_env();
+        clear_config_env();
         unsafe { std::env::set_var("MEDIA_SERVER", "mediamtx") };
 
         let cfg = Config::from_env();
@@ -312,7 +360,7 @@ mod tests {
     fn mediamtx_mode_parses_local_and_external() {
         let _guard = env_lock().lock().unwrap();
         let snapshot = snapshot_env();
-        clear_media_env();
+        clear_config_env();
         unsafe { std::env::set_var("MEDIA_SERVER", "mediamtx") };
         unsafe { std::env::set_var("MEDIAMTX_MODE", "local") };
 
@@ -336,7 +384,7 @@ mod tests {
     fn invalid_mediamtx_ports_fall_back_to_defaults() {
         let _guard = env_lock().lock().unwrap();
         let snapshot = snapshot_env();
-        clear_media_env();
+        clear_config_env();
         unsafe { std::env::set_var("MEDIA_SERVER", "mediamtx") };
         unsafe { std::env::set_var("MEDIAMTX_API_PORT", "not-a-port") };
         unsafe { std::env::set_var("MEDIAMTX_WHEP_PORT", "-1") };
@@ -349,6 +397,63 @@ mod tests {
             }
             _ => panic!("expected MediaMtx config"),
         }
+
+        restore_env(&snapshot);
+    }
+
+    #[test]
+    fn manual_rtsp_cameras_parse_with_optional_stable_ids() {
+        let _guard = env_lock().lock().unwrap();
+        let snapshot = snapshot_env();
+        clear_config_env();
+        unsafe {
+            std::env::set_var(
+                "MANUAL_RTSP_CAMERAS",
+                "Front Door|rtsp://user:pass@192.168.1.10:554/stream|front-door;Garage|rtsp://192.168.1.11:554/live",
+            )
+        };
+
+        let cfg = Config::from_env();
+        assert_eq!(
+            cfg.manual_rtsp_cameras,
+            vec![
+                ManualRtspCameraConfig {
+                    name: "Front Door".into(),
+                    rtsp_url: "rtsp://user:pass@192.168.1.10:554/stream".into(),
+                    stable_id: Some("front-door".into()),
+                },
+                ManualRtspCameraConfig {
+                    name: "Garage".into(),
+                    rtsp_url: "rtsp://192.168.1.11:554/live".into(),
+                    stable_id: None,
+                },
+            ]
+        );
+
+        restore_env(&snapshot);
+    }
+
+    #[test]
+    fn invalid_manual_rtsp_entries_are_ignored() {
+        let _guard = env_lock().lock().unwrap();
+        let snapshot = snapshot_env();
+        clear_config_env();
+        unsafe {
+            std::env::set_var(
+                "MANUAL_RTSP_CAMERAS",
+                "MissingUrl||cam-a;|rtsp://192.168.1.10/live;Good|rtsp://192.168.1.12/live|",
+            )
+        };
+
+        let cfg = Config::from_env();
+        assert_eq!(
+            cfg.manual_rtsp_cameras,
+            vec![ManualRtspCameraConfig {
+                name: "Good".into(),
+                rtsp_url: "rtsp://192.168.1.12/live".into(),
+                stable_id: None,
+            }]
+        );
 
         restore_env(&snapshot);
     }
