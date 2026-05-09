@@ -922,7 +922,7 @@ dependencies = [
  "digest 0.10.7",
  "hex",
  "md-5",
- "rand 0.8.5",
+ "rand 0.8.6",
  "sha2",
 ]
 
@@ -963,7 +963,7 @@ version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4c84070523f8ba0f9127ff156920f27eb27b302b425efe60bf5f41ec244d1c60"
 dependencies = [
- "heapless",
+ "heapless 0.8.0",
  "octseq",
  "time",
 ]
@@ -1041,7 +1041,7 @@ dependencies = [
  "embedded-io-async",
  "futures-core",
  "futures-sink",
- "heapless",
+ "heapless 0.8.0",
 ]
 
 [[package]]
@@ -1073,12 +1073,12 @@ dependencies = [
 
 [[package]]
 name = "embassy-time-queue-utils"
-version = "0.3.0"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "80e2ee86063bd028a420a5fb5898c18c87a8898026da1d4c852af2c443d0a454"
+checksum = "168297bf80aaf114b3c9ad589bf38b01b3009b9af7f97cd18086c5bbf96f5693"
 dependencies = [
  "embassy-executor-timer-queue",
- "heapless",
+ "heapless 0.9.3",
 ]
 
 [[package]]
@@ -1448,6 +1448,16 @@ name = "heapless"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0bfb9eb618601c89945a70e254898da93b13be0388091d42117462b265bb3fad"
+dependencies = [
+ "hash32",
+ "stable_deref_trait",
+]
+
+[[package]]
+name = "heapless"
+version = "0.9.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "25ba4bd83f9415b58b4ed8dc5714c76e626a105be4646c02630ad730ad3b5aa4"
 dependencies = [
  "hash32",
  "stable_deref_trait",
@@ -2040,7 +2050,7 @@ dependencies = [
  "matter-camera",
  "media",
  "onvif-client",
- "rand 0.8.5",
+ "rand 0.10.1",
  "rs-matter",
  "serde",
  "serde_json",
@@ -2360,7 +2370,7 @@ version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "126c3ca37c9c44cec575247f43a3e4374d8927684f129d2beeb0d2cef262fe12"
 dependencies = [
- "heapless",
+ "heapless 0.8.0",
 ]
 
 [[package]]
@@ -2401,9 +2411,9 @@ checksum = "d211803b9b6b570f68772237e415a029d5a50c65d382910b879fb19d3271f94d"
 
 [[package]]
 name = "oxvif"
-version = "0.9.3"
+version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4b2cb5326806a63946da834a9c922364e2719c737ad639aedc32d96e04599441"
+checksum = "209c3b3ed383028fe017c4d09db76931ed856951eab3fead0bacf239f80488a8"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -2757,9 +2767,9 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
 name = "rand"
-version = "0.8.5"
+version = "0.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34af8d1a0e25924bc5b7c43c079c942339d8f0a8b57c39049bef581b46327404"
+checksum = "5ca0ecfa931c29007047d1bc58e623ab12e5590e8c7cc53200d5202b69266d8a"
 dependencies = [
  "libc",
  "rand_chacha 0.3.1",
@@ -2871,9 +2881,9 @@ checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
 
 [[package]]
 name = "reqwest"
-version = "0.13.2"
+version = "0.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab3f43e3283ab1488b624b44b0e988d0acea0b3214e694730a055cb6b2efa801"
+checksum = "62e0021ea2c22aed41653bc7e1419abb2c97e038ff2c33d0e1309e49a97deec0"
 dependencies = [
  "base64",
  "bytes",
@@ -2957,7 +2967,7 @@ dependencies = [
  "embassy-futures",
  "embassy-sync",
  "embassy-time",
- "heapless",
+ "heapless 0.8.0",
  "hkdf",
  "hmac",
  "if-addrs",
@@ -2972,7 +2982,7 @@ dependencies = [
  "pinned-init",
  "primeorder",
  "qrcodegen-no-heap",
- "rand 0.8.5",
+ "rand 0.8.6",
  "rand_core 0.6.4",
  "rs-matter-codegen",
  "rs-matter-macros",
