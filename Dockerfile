@@ -1,6 +1,6 @@
 # ── Stage 1: Build ─────────────────────────────────────────────────────────────
 # Use the official Rust image for the build stage.
-FROM rust:1.82 AS builder
+FROM rust:1.95 AS builder
 
 WORKDIR /build
 
