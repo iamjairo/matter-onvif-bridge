@@ -15,9 +15,53 @@ pub async fn run_stream_manager(
     onvif_username: &str,
     onvif_password: &str,
 ) {
+    // Subscribe before the startup snapshot so we don't miss events that
+    // arrive while we're processing the initial batch.
     let mut rx = registry.subscribe();
 
     info!("Stream manager started — listening for camera events");
+
+    // Register any cameras that were added to the registry before this task
+    // had a chance to run (e.g. manual RTSP cameras added at startup).
+    for camera in registry.get_all() {
+        let stream_name = sanitize_stream_name(&camera.id);
+        let rtsp_url = inject_credentials(&camera.stream_uri, onvif_username, onvif_password);
+
+        if rtsp_url.is_empty() {
+            error!(
+                camera_id = camera.id,
+                "No RTSP URL for camera, skipping stream registration"
+            );
+            continue;
+        }
+
+        if api.stream_matches(&stream_name, &rtsp_url).await {
+            info!(
+                camera_id = camera.id,
+                stream_name,
+                "Stream already registered in go2rtc with matching URL, skipping"
+            );
+            continue;
+        }
+
+        match api.add_stream(&stream_name, &rtsp_url).await {
+            Ok(()) => {
+                info!(
+                    camera_id = camera.id,
+                    stream_name,
+                    "Registered RTSP stream in go2rtc (startup snapshot)"
+                );
+            }
+            Err(e) => {
+                error!(
+                    camera_id = camera.id,
+                    stream_name,
+                    err = %e,
+                    "Failed to register stream in go2rtc (startup snapshot)"
+                );
+            }
+        }
+    }
 
     loop {
         match rx.recv().await {
