@@ -139,7 +139,8 @@ All settings come from environment variables (use a `.env` file — see `.env.ex
 - Manual RTSP cameras bypass ONVIF discovery and do **not** change existing `ONVIF_DISCOVERY_MODE` / `ONVIF_STATIC_CAMERAS` behavior.
 - When ONVIF metadata/events are unavailable, manual cameras are exposed as **reduced-capability, video-only** cameras:
   - no implied motion/event support
-  - no ONVIF metadata enrichment
+  - no ONVIF metadata enrichment beyond conservative fallback capability values
+  - conservative fallback video metadata is advertised when profile data is unavailable (currently 1280x720 @ 15 fps, single encoder)
   - no ONVIF event pump
 - Prefer embedding RTSP credentials directly in the URL for explicit, predictable behavior.
 

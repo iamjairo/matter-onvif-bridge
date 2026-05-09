@@ -29,6 +29,10 @@ use crate::config::{self, Config, ManualRtspCameraConfig, MediaConfig};
 use crate::slot_persistence::SlotMap;
 use crate::{MAX_CAMERAS, WITH_OCCUPANCY_CAMERAS};
 
+const FALLBACK_VIDEO_WIDTH: u16 = 1280;
+const FALLBACK_VIDEO_HEIGHT: u16 = 720;
+const FALLBACK_VIDEO_FPS: u16 = 15;
+
 /// Shared state accessible from the Matter handler thread for WebRTC negotiation.
 #[derive(Clone)]
 pub struct MediaBridge {
@@ -351,27 +355,51 @@ fn populate_camera_state(
         )
     });
 
-    // Video params from first profile
-    if let Some(profile) = camera.profiles.first() {
-        if let Some(ve) = &profile.video_encoder {
-            state.video_sensor_params = VideoSensorParams {
-                sensor_width: ve.width,
-                sensor_height: ve.height,
-                max_hdr_fps: None,
-                max_fps: ve.frame_rate,
-            };
-            state.viewport = VideoResolution {
-                width: ve.width,
-                height: ve.height,
-            };
-            state.current_frame_rate = ve.frame_rate;
-            state.max_encoded_pixel_rate =
-                ve.width as u32 * ve.height as u32 * ve.frame_rate as u32;
-        }
+    // Video params from first profile; if unavailable, advertise conservative
+    // fallback defaults so manual RTSP cameras still present coherent
+    // video-only capability state.
+    if let Some(video_encoder) = camera
+        .profiles
+        .first()
+        .and_then(|profile| profile.video_encoder.as_ref())
+    {
+        state.video_sensor_params = VideoSensorParams {
+            sensor_width: video_encoder.width,
+            sensor_height: video_encoder.height,
+            max_hdr_fps: None,
+            max_fps: video_encoder.frame_rate,
+        };
+        state.viewport = VideoResolution {
+            width: video_encoder.width,
+            height: video_encoder.height,
+        };
+        state.current_frame_rate = video_encoder.frame_rate;
+        state.max_encoded_pixel_rate = video_encoder.width as u32
+            * video_encoder.height as u32
+            * video_encoder.frame_rate as u32;
+        state.max_concurrent_video_encoders = camera.profiles.len().max(1) as u8;
+    } else {
+        apply_fallback_video_state(&mut state);
     }
 
-    state.max_concurrent_video_encoders = camera.profiles.len().max(1) as u8;
     state.max_network_bandwidth = 10_000;
+}
+
+fn apply_fallback_video_state(state: &mut CameraEndpointState) {
+    state.video_sensor_params = VideoSensorParams {
+        sensor_width: FALLBACK_VIDEO_WIDTH,
+        sensor_height: FALLBACK_VIDEO_HEIGHT,
+        max_hdr_fps: None,
+        max_fps: FALLBACK_VIDEO_FPS,
+    };
+    state.viewport = VideoResolution {
+        width: FALLBACK_VIDEO_WIDTH,
+        height: FALLBACK_VIDEO_HEIGHT,
+    };
+    state.current_frame_rate = FALLBACK_VIDEO_FPS;
+    state.max_encoded_pixel_rate =
+        FALLBACK_VIDEO_WIDTH as u32 * FALLBACK_VIDEO_HEIGHT as u32 * FALLBACK_VIDEO_FPS as u32;
+    state.max_concurrent_video_encoders = 1;
 }
 
 /// Sanitize camera ID into a go2rtc-compatible stream name.
@@ -463,4 +491,87 @@ fn parse_rtsp_host_and_port(rtsp_url: &str) -> (String, u16) {
     }
 
     (authority.to_string(), 554)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, RwLock};
+
+    use matter_camera::types::CameraEndpointState;
+    use onvif_client::types::{CameraDevice, DeviceInfo, MediaProfile, VideoEncoderConfig};
+
+    use super::{
+        FALLBACK_VIDEO_FPS, FALLBACK_VIDEO_HEIGHT, FALLBACK_VIDEO_WIDTH, populate_camera_state,
+    };
+
+    fn sample_camera(profiles: Vec<MediaProfile>) -> CameraDevice {
+        CameraDevice {
+            id: "camera-1".into(),
+            host: "192.168.1.10".into(),
+            port: 554,
+            device_info: DeviceInfo {
+                manufacturer: "Manual RTSP".into(),
+                model: "Front Door".into(),
+                firmware_version: "manual-rtsp".into(),
+                serial_number: "manual:front-door".into(),
+                hardware_id: "manual-rtsp".into(),
+            },
+            profiles,
+            stream_uri: "rtsp://192.168.1.10:554/stream".into(),
+            events_url: None,
+            supports_motion: false,
+        }
+    }
+
+    #[test]
+    fn populate_camera_state_uses_conservative_fallbacks_without_profiles() {
+        let state = Arc::new(RwLock::new(CameraEndpointState::default()));
+        let camera = sample_camera(Vec::new());
+
+        populate_camera_state(&state, &camera, Some("Front Door"));
+
+        let state = state.read().unwrap();
+        assert!(state.occupied);
+        assert_eq!(state.node_label, "Front Door");
+        assert_eq!(state.video_sensor_params.sensor_width, FALLBACK_VIDEO_WIDTH);
+        assert_eq!(
+            state.video_sensor_params.sensor_height,
+            FALLBACK_VIDEO_HEIGHT
+        );
+        assert_eq!(state.video_sensor_params.max_fps, FALLBACK_VIDEO_FPS);
+        assert_eq!(state.viewport.width, FALLBACK_VIDEO_WIDTH);
+        assert_eq!(state.viewport.height, FALLBACK_VIDEO_HEIGHT);
+        assert_eq!(state.current_frame_rate, FALLBACK_VIDEO_FPS);
+        assert_eq!(state.max_concurrent_video_encoders, 1);
+    }
+
+    #[test]
+    fn populate_camera_state_prefers_profile_video_metadata_when_available() {
+        let state = Arc::new(RwLock::new(CameraEndpointState::default()));
+        let camera = sample_camera(vec![MediaProfile {
+            token: "main".into(),
+            name: "Main".into(),
+            video_encoder: Some(VideoEncoderConfig {
+                codec: "h264".into(),
+                width: 1920,
+                height: 1080,
+                frame_rate: 20,
+                bitrate: 4_000,
+                quality: 5.0,
+            }),
+            audio_encoder: None,
+            ptz_config_token: None,
+        }]);
+
+        populate_camera_state(&state, &camera, Some("Front Door"));
+
+        let state = state.read().unwrap();
+        assert_eq!(state.video_sensor_params.sensor_width, 1920);
+        assert_eq!(state.video_sensor_params.sensor_height, 1080);
+        assert_eq!(state.video_sensor_params.max_fps, 20);
+        assert_eq!(state.viewport.width, 1920);
+        assert_eq!(state.viewport.height, 1080);
+        assert_eq!(state.current_frame_rate, 20);
+        assert_eq!(state.max_concurrent_video_encoders, 1);
+    }
 }
