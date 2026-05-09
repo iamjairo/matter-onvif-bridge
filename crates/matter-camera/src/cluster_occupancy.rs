@@ -4,15 +4,15 @@
 //! endpoint when the underlying ONVIF device advertises a MotionAlarm topic
 //! (see slot pool split in `bridge::main`).
 
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::sync::RwLock;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use rs_matter::attributes;
 use rs_matter::commands;
 use rs_matter::dm::{
-    Access, Attribute, Cluster, Handler, InvokeContext, InvokeReply, NonBlockingHandler,
-    Quality, ReadContext, ReadReply, Reply, WriteContext,
+    Access, Attribute, Cluster, Handler, InvokeContext, InvokeReply, NonBlockingHandler, Quality,
+    ReadContext, ReadReply, Reply, WriteContext,
 };
 use rs_matter::error::{Error, ErrorCode};
 use strum::FromRepr;
@@ -51,7 +51,11 @@ pub const OCCUPANCY_CLUSTER: Cluster<'static> = Cluster::new(
     FEATURE_MAP_PIR,
     attributes!(
         Attribute::new(Attributes::Occupancy as _, Access::RV, Quality::NONE),
-        Attribute::new(Attributes::OccupancySensorType as _, Access::RV, Quality::FIXED),
+        Attribute::new(
+            Attributes::OccupancySensorType as _,
+            Access::RV,
+            Quality::FIXED
+        ),
         Attribute::new(
             Attributes::OccupancySensorTypeBitmap as _,
             Access::RV,
@@ -59,7 +63,7 @@ pub const OCCUPANCY_CLUSTER: Cluster<'static> = Cluster::new(
         )
     ),
     commands!(),
-    &[], // events: none
+    &[],            // events: none
     |_, _, _| true, // with_attrs
     |_, _, _| true, // with_cmds
     |_, _, _| true, // with_events
@@ -123,7 +127,11 @@ impl Handler for OccupancyHandler {
             match attr.attr_id.try_into()? {
                 Attributes::Occupancy => {
                     // Occupancy is a bitmap8, bit 0 = occupied
-                    let bits: u8 = if state.motion_detected { 0b0000_0001 } else { 0 };
+                    let bits: u8 = if state.motion_detected {
+                        0b0000_0001
+                    } else {
+                        0
+                    };
                     writer.set(bits)
                 }
                 Attributes::OccupancySensorType => writer.set(SENSOR_TYPE_PIR),

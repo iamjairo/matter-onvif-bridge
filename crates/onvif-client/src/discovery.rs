@@ -78,10 +78,7 @@ async fn scan_static_only(config: &DiscoveryConfig, tx: &mpsc::Sender<DiscoveryE
         return;
     }
 
-    info!(
-        total = devices.len(),
-        "Connecting to static cameras"
-    );
+    info!(total = devices.len(), "Connecting to static cameras");
 
     let mut connected = 0;
     for device in &devices {
@@ -108,7 +105,11 @@ async fn scan_static_only(config: &DiscoveryConfig, tx: &mpsc::Sender<DiscoveryE
         }
     }
 
-    info!(connected, total = devices.len(), "Static camera scan complete");
+    info!(
+        connected,
+        total = devices.len(),
+        "Static camera scan complete"
+    );
 }
 
 /// Auto mode: WS-Discovery + static cameras, periodic rescanning.
@@ -202,7 +203,10 @@ async fn scan_once(
                 discovered.remove(&id);
                 missed_scans.remove(&id);
                 let _ = tx.send(DiscoveryEvent::CameraLost(id.clone())).await;
-                info!(camera_id = id, "Camera removed after {} missed scans", MISS_THRESHOLD);
+                info!(
+                    camera_id = id,
+                    "Camera removed after {} missed scans", MISS_THRESHOLD
+                );
             } else {
                 let _ = tx.send(DiscoveryEvent::CameraUnreachable(id.clone())).await;
                 debug!(

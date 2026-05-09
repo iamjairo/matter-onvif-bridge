@@ -20,8 +20,7 @@ use tracing::{debug, info, trace, warn};
 /// emit; `tns1:VideoSource/MotionAlarm` is also advertised on some firmwares
 /// but never fires on these models. The `||` is the ONVIF ConcreteSet OR
 /// operator from the WS-BaseNotification topic dialect.
-const MOTION_TOPIC: &str =
-    "tns1:RuleEngine/CellMotionDetector/Motion|tns1:VideoSource/MotionAlarm";
+const MOTION_TOPIC: &str = "tns1:RuleEngine/CellMotionDetector/Motion|tns1:VideoSource/MotionAlarm";
 
 /// Substrings (lowercased) that mark a notification as motion-related,
 /// independent of the device's namespace prefix.
@@ -150,9 +149,7 @@ where
 
 /// Inspect a notification's `Data` SimpleItem map for the motion boolean.
 /// VIGI/TP-Link cameras vary between `IsMotion` and `State`; some emit `Value`.
-fn decode_motion_state(
-    data: &std::collections::HashMap<String, String>,
-) -> Option<bool> {
+fn decode_motion_state(data: &std::collections::HashMap<String, String>) -> Option<bool> {
     for key in ["IsMotion", "State", "Value", "isMotion", "state"] {
         if let Some(v) = data.get(key) {
             return Some(parse_bool(v));

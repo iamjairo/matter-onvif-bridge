@@ -60,7 +60,10 @@ impl SlotMap {
             .map(|p| {
                 // Drop entries that exceed the current capacity (e.g. after
                 // shrinking the slot pool). They'll be re-allocated.
-                p.cameras.into_iter().filter(|(_, slot)| *slot < capacity).collect()
+                p.cameras
+                    .into_iter()
+                    .filter(|(_, slot)| *slot < capacity)
+                    .collect()
             })
             .unwrap_or_default();
         Self {
