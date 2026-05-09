@@ -91,7 +91,7 @@ pub struct WebRtcHandler {
     dataver: Dataver,
     state: Arc<RwLock<CameraEndpointState>>,
     /// Optional SDP exchange callback — when None, returns a stub SDP answer.
-    /// Set by the bridge after go2rtc is wired up.
+    /// Set by the bridge after the configured media backend is wired up.
     sdp_exchange: Option<SdpExchangeFn>,
 }
 
@@ -104,7 +104,7 @@ impl WebRtcHandler {
         }
     }
 
-    /// Set the SDP exchange callback for real go2rtc integration.
+    /// Set the SDP exchange callback for real media-backend integration.
     pub fn set_sdp_exchange(&mut self, f: SdpExchangeFn) {
         self.sdp_exchange = Some(f);
     }
@@ -170,14 +170,15 @@ impl Handler for WebRtcHandler {
                 let session_id = state.next_session_id;
                 state.next_session_id += 1;
 
-                // Exchange SDP via go2rtc if available, otherwise return stub
+                // Exchange SDP via the configured media backend if available,
+                // otherwise return a conservative stub answer.
                 let sdp_answer = if let Some(ref exchange) = self.sdp_exchange {
                     match exchange(sdp_offer) {
                         Ok((answer, _candidates)) => {
                             debug!(
                                 session_id,
                                 sdp_answer_len = answer.len(),
-                                "ProvideOffer — SDP exchanged via go2rtc"
+                                "ProvideOffer — SDP exchanged via media backend"
                             );
                             answer
                         }
@@ -185,7 +186,7 @@ impl Handler for WebRtcHandler {
                             debug!(
                                 session_id,
                                 err = %e,
-                                "ProvideOffer — go2rtc SDP exchange failed, returning stub"
+                                "ProvideOffer — media-backend SDP exchange failed, returning stub"
                             );
                             "v=0\r\n".to_string()
                         }

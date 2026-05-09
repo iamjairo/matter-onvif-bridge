@@ -4,7 +4,7 @@
 [![Rust](https://img.shields.io/badge/rust-2024_edition-orange.svg)](https://www.rust-lang.org/)
 [![Matter](https://img.shields.io/badge/Matter-1.5-brightgreen.svg)](https://csa-iot.org/developer-resource/specifications-download-request/)
 
-A Rust bridge that discovers ONVIF IP cameras on your LAN and exposes them as native **Matter 1.5** camera devices. Compatible with Google Home, Apple Home, and any Matter-compliant controller.
+A Rust bridge that discovers ONVIF IP cameras on your LAN and exposes them as native **Matter 1.5** camera devices. Tested with Google Home and Apple Home; other Matter 1.5 controllers that support the camera device type may work, but interoperability has not been validated.
 
 Uses [rs-matter](https://github.com/project-chip/rs-matter) for the Matter protocol stack, [oxvif](https://github.com/smiti1642/oxvif) for ONVIF discovery and control, and either [go2rtc](https://github.com/AlexxIT/go2rtc) or [MediaMTX](https://github.com/bluenviron/mediamtx) for RTSP-to-WebRTC media bridging.
 
@@ -447,7 +447,7 @@ SetupQRCode: [MT:-24J0AFN00KA064IJ3P0...]
 PairingCode:  3497-0112-332
 ```
 
-Commission with any Matter 1.5-capable controller:
+Commissioning has been validated with Google Home and Apple Home. Other Matter 1.5-capable controllers may work, but interoperability has not been validated:
 
 | Controller | Steps |
 |------------|-------|
