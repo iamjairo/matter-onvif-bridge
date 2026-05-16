@@ -38,8 +38,7 @@ pub async fn run_stream_manager(
         if api.stream_matches(&stream_name, &rtsp_url).await {
             info!(
                 camera_id = camera.id,
-                stream_name,
-                "Stream already registered in go2rtc with matching URL, skipping"
+                stream_name, "Stream already registered in go2rtc with matching URL, skipping"
             );
             continue;
         }
@@ -48,8 +47,7 @@ pub async fn run_stream_manager(
             Ok(()) => {
                 info!(
                     camera_id = camera.id,
-                    stream_name,
-                    "Registered RTSP stream in go2rtc (startup snapshot)"
+                    stream_name, "Registered RTSP stream in go2rtc (startup snapshot)"
                 );
             }
             Err(e) => {
@@ -172,10 +170,72 @@ fn inject_credentials(uri: &str, username: &str, password: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::io;
+    use std::time::Duration;
+
+    use onvif_client::registry::CameraRegistry;
+    use onvif_client::types::{CameraDevice, DeviceInfo};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
     use super::*;
+    use crate::go2rtc_api::Go2RtcApi;
+    use crate::media_api::AnyMediaApi;
 
     const TEST_USERNAME: &str = "admin";
     const TEST_PASSWORD: &str = "pass";
+
+    fn test_camera(id: &str, stream_uri: &str) -> CameraDevice {
+        CameraDevice {
+            id: id.to_string(),
+            host: "127.0.0.1".to_string(),
+            port: 80,
+            device_info: DeviceInfo {
+                manufacturer: "test".to_string(),
+                model: "test".to_string(),
+                firmware_version: "1.0".to_string(),
+                serial_number: "123".to_string(),
+                hardware_id: "abc".to_string(),
+            },
+            profiles: Vec::new(),
+            stream_uri: stream_uri.to_string(),
+            events_url: None,
+            supports_motion: false,
+        }
+    }
+
+    async fn spawn_scripted_go2rtc_server(
+        responses: Vec<(u16, &'static str)>,
+    ) -> Result<(u16, tokio::task::JoinHandle<Vec<String>>), io::Error> {
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let port = listener.local_addr()?.port();
+        let handle = tokio::spawn(async move {
+            let mut requests = Vec::with_capacity(responses.len());
+            for (status, body) in responses {
+                let (mut socket, _) = listener.accept().await.expect("accept failed");
+                let mut buf = [0_u8; 2048];
+                let n = socket.read(&mut buf).await.expect("read failed");
+                requests.push(String::from_utf8_lossy(&buf[..n]).to_string());
+
+                let status_text = match status {
+                    200 => "OK",
+                    400 => "Bad Request",
+                    _ => "OK",
+                };
+                let response = format!(
+                    "HTTP/1.1 {status} {status_text}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                socket
+                    .write_all(response.as_bytes())
+                    .await
+                    .expect("response write failed");
+            }
+            requests
+        });
+
+        Ok((port, handle))
+    }
 
     #[test]
     fn test_sanitize_stream_name() {
@@ -187,7 +247,11 @@ mod tests {
     #[test]
     fn test_inject_credentials() {
         assert_eq!(
-            inject_credentials("rtsp://192.168.1.1:554/stream", TEST_USERNAME, TEST_PASSWORD),
+            inject_credentials(
+                "rtsp://192.168.1.1:554/stream",
+                TEST_USERNAME,
+                TEST_PASSWORD
+            ),
             "rtsp://admin:pass@192.168.1.1:554/stream"
         );
         assert_eq!(
@@ -199,5 +263,60 @@ mod tests {
             "rtsp://user:existing@192.168.1.1:554/stream"
         );
         assert_eq!(inject_credentials("", TEST_USERNAME, TEST_PASSWORD), "");
+    }
+
+    #[tokio::test]
+    async fn startup_snapshot_registers_existing_camera() {
+        let (port, requests_handle) = spawn_scripted_go2rtc_server(vec![(200, "{}"), (200, "{}")])
+            .await
+            .unwrap();
+        let registry = CameraRegistry::new(8);
+        registry.add_camera(test_camera("cam.1", "rtsp://10.0.0.2/live"));
+        let api = AnyMediaApi::Go2Rtc(Go2RtcApi::new("127.0.0.1", port));
+        let registry_for_task = registry.clone();
+
+        let manager_handle = tokio::spawn(async move {
+            run_stream_manager(&registry_for_task, api, TEST_USERNAME, TEST_PASSWORD).await
+        });
+
+        let requests = tokio::time::timeout(Duration::from_secs(2), requests_handle)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(requests[0].starts_with("GET /api/streams "));
+        assert!(requests[1].starts_with(
+            "PUT /api/streams?name=cam_1&src=rtsp%3A%2F%2Fadmin%3Apass%4010.0.0.2%2Flive "
+        ));
+
+        manager_handle.abort();
+        let _ = manager_handle.await;
+    }
+
+    #[tokio::test]
+    async fn startup_snapshot_skips_add_when_stream_already_matches() {
+        let (port, requests_handle) = spawn_scripted_go2rtc_server(vec![(
+            200,
+            r#"{"cam_1":{"producers":[{"url":"rtsp://admin:pass@10.0.0.2/live"}]}}"#,
+        )])
+        .await
+        .unwrap();
+        let registry = CameraRegistry::new(8);
+        registry.add_camera(test_camera("cam.1", "rtsp://10.0.0.2/live"));
+        let api = AnyMediaApi::Go2Rtc(Go2RtcApi::new("127.0.0.1", port));
+        let registry_for_task = registry.clone();
+
+        let manager_handle = tokio::spawn(async move {
+            run_stream_manager(&registry_for_task, api, TEST_USERNAME, TEST_PASSWORD).await
+        });
+
+        let requests = tokio::time::timeout(Duration::from_secs(2), requests_handle)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(requests.len(), 1);
+        assert!(requests[0].starts_with("GET /api/streams "));
+
+        manager_handle.abort();
+        let _ = manager_handle.await;
     }
 }

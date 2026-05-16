@@ -66,7 +66,10 @@ impl MediaMtxApi {
             // MediaMTX returns 400 when the path already exists. If the existing
             // path matches the URL we wanted, treat it as success.
             if resp.status().as_u16() == 400 && self.stream_matches(name, rtsp_url).await {
-                debug!(name, "MediaMTX path already exists with matching URL, skipping");
+                debug!(
+                    name,
+                    "MediaMTX path already exists with matching URL, skipping"
+                );
                 return Ok(());
             }
             return Err(format!(
@@ -307,6 +310,44 @@ mod tests {
         Ok((port, handle))
     }
 
+    async fn spawn_multi_request_server(
+        responses: Vec<(u16, &'static str)>,
+    ) -> Result<(u16, tokio::task::JoinHandle<Vec<MockRequest>>), io::Error> {
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let port = listener.local_addr()?.port();
+
+        let handle = tokio::spawn(async move {
+            let mut requests = Vec::with_capacity(responses.len());
+            for (status, body) in responses {
+                let (mut socket, _) = listener.accept().await.expect("accept failed");
+                let req = read_http_request(&mut socket)
+                    .await
+                    .expect("request parsing failed");
+                requests.push(req);
+
+                let status_text = match status {
+                    200 => "OK",
+                    201 => "Created",
+                    400 => "Bad Request",
+                    404 => "Not Found",
+                    500 => "Internal Server Error",
+                    _ => "OK",
+                };
+                let response = format!(
+                    "HTTP/1.1 {status} {status_text}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                socket
+                    .write_all(response.as_bytes())
+                    .await
+                    .expect("response write failed");
+            }
+            requests
+        });
+
+        Ok((port, handle))
+    }
+
     #[tokio::test]
     async fn readiness_probe_returns_true_on_200() {
         let (api_port, handle) = spawn_single_request_server(200, "{}").await.unwrap();
@@ -342,6 +383,38 @@ mod tests {
             req.body
                 .contains("\"source\":\"rtsp://u:p@127.0.0.2:554/live\"")
         );
+    }
+
+    #[tokio::test]
+    async fn add_stream_tolerates_400_when_existing_path_matches() {
+        let (api_port, _handle) = spawn_multi_request_server(vec![
+            (400, "{}"),
+            (200, r#"{"source":"rtsp://u:p@127.0.0.2:554/live"}"#),
+        ])
+        .await
+        .unwrap();
+        let api = MediaMtxApi::new("127.0.0.1", api_port, api_port);
+
+        api.add_stream("cam1", "rtsp://u:p@127.0.0.2:554/live")
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn add_stream_rejects_400_when_existing_path_does_not_match() {
+        let (api_port, _handle) = spawn_multi_request_server(vec![
+            (400, "{}"),
+            (200, r#"{"source":"rtsp://other:other@127.0.0.2:554/live"}"#),
+        ])
+        .await
+        .unwrap();
+        let api = MediaMtxApi::new("127.0.0.1", api_port, api_port);
+
+        let err = api
+            .add_stream("cam1", "rtsp://u:p@127.0.0.2:554/live")
+            .await
+            .unwrap_err();
+        assert!(err.contains("400 Bad Request"));
     }
 
     #[tokio::test]

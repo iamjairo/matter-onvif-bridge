@@ -258,6 +258,46 @@ mod tests {
         Ok((port, handle))
     }
 
+    async fn spawn_multi_request_server(
+        responses: Vec<(u16, &'static [u8])>,
+    ) -> Result<(u16, tokio::task::JoinHandle<Vec<String>>), io::Error> {
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let port = listener.local_addr()?.port();
+
+        let handle = tokio::spawn(async move {
+            let mut requests = Vec::with_capacity(responses.len());
+            for (status, body) in responses {
+                let (mut socket, _) = listener.accept().await.expect("accept failed");
+                let mut buf = [0_u8; 2048];
+                let n = socket.read(&mut buf).await.expect("read failed");
+                let request = String::from_utf8_lossy(&buf[..n]).to_string();
+                requests.push(request);
+
+                let status_text = match status {
+                    200 => "OK",
+                    400 => "Bad Request",
+                    404 => "Not Found",
+                    _ => "OK",
+                };
+                let response = format!(
+                    "HTTP/1.1 {status} {status_text}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                socket
+                    .write_all(response.as_bytes())
+                    .await
+                    .expect("response head write failed");
+                socket
+                    .write_all(body)
+                    .await
+                    .expect("response body write failed");
+            }
+            requests
+        });
+
+        Ok((port, handle))
+    }
+
     #[tokio::test]
     async fn snapshot_jpeg_uses_expected_endpoint_and_returns_bytes() {
         let jpeg_bytes = b"\xFF\xD8\xFF\xD9";
@@ -269,5 +309,49 @@ mod tests {
 
         let request = handle.await.unwrap();
         assert!(request.starts_with("GET /api/frame.jpeg?src=front-door "));
+    }
+
+    #[tokio::test]
+    async fn add_stream_tolerates_400_when_stream_already_matches() {
+        let (port, handle) = spawn_multi_request_server(vec![
+            (400, b"read-only config"),
+            (
+                200,
+                br#"{"cam1":{"producers":[{"url":"rtsp://u:p@127.0.0.2:554/live"}]}}"#,
+            ),
+        ])
+        .await
+        .unwrap();
+        let api = Go2RtcApi::new("127.0.0.1", port);
+
+        api.add_stream("cam1", "rtsp://u:p@127.0.0.2:554/live")
+            .await
+            .unwrap();
+
+        let requests = handle.await.unwrap();
+        assert!(requests[0].starts_with(
+            "PUT /api/streams?name=cam1&src=rtsp%3A%2F%2Fu%3Ap%40127.0.0.2%3A554%2Flive "
+        ));
+        assert!(requests[1].starts_with("GET /api/streams "));
+    }
+
+    #[tokio::test]
+    async fn add_stream_rejects_400_when_stream_does_not_match() {
+        let (port, _handle) = spawn_multi_request_server(vec![
+            (400, b"read-only config"),
+            (
+                200,
+                br#"{"cam1":{"producers":[{"url":"rtsp://other:other@127.0.0.2:554/live"}]}}"#,
+            ),
+        ])
+        .await
+        .unwrap();
+        let api = Go2RtcApi::new("127.0.0.1", port);
+
+        let err = api
+            .add_stream("cam1", "rtsp://u:p@127.0.0.2:554/live")
+            .await
+            .unwrap_err();
+        assert!(err.contains("400 Bad Request"));
     }
 }
