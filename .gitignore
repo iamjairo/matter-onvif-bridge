@@ -6,7 +6,7 @@
 .matter-storage/
 
 # go2rtc
-go2rtc.yaml
+/go2rtc.yaml
 bin/
 
 # OS
