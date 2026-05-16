@@ -12,6 +12,8 @@
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
+use crate::url_redaction::redact_rtsp_url_for_logs;
+
 #[derive(Debug, Serialize)]
 struct PathConfig {
     source: String,
@@ -51,8 +53,13 @@ impl MediaMtxApi {
         let body = PathConfig {
             source: rtsp_url.to_string(),
         };
+        let redacted_rtsp_url = redact_rtsp_url_for_logs(rtsp_url);
 
-        debug!(name, rtsp_url, "Registering path in MediaMTX");
+        debug!(
+            name,
+            rtsp_url = %redacted_rtsp_url,
+            "Registering path in MediaMTX"
+        );
 
         let resp = self
             .client

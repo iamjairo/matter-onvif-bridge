@@ -13,4 +13,5 @@ pub mod media_api;
 pub mod mediamtx_api;
 pub mod mediamtx_manager;
 pub mod stream_manager;
+pub(crate) mod url_redaction;
 pub mod webrtc_session;

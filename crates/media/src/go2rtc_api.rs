@@ -11,6 +11,8 @@ use std::collections::HashMap;
 use serde::Deserialize;
 use tracing::debug;
 
+use crate::url_redaction::redact_rtsp_url_for_logs;
+
 #[derive(Debug, Deserialize)]
 struct StreamProducer {
     url: String,
@@ -53,8 +55,13 @@ impl Go2RtcApi {
             urlencoding::encode(name),
             urlencoding::encode(rtsp_url),
         );
+        let redacted_rtsp_url = redact_rtsp_url_for_logs(rtsp_url);
 
-        debug!(name, rtsp_url, "Registering stream in go2rtc");
+        debug!(
+            name,
+            rtsp_url = %redacted_rtsp_url,
+            "Registering stream in go2rtc"
+        );
 
         let resp = self
             .client
