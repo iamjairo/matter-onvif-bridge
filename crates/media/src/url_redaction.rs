@@ -9,9 +9,11 @@ pub(crate) fn redact_rtsp_url_for_logs(rtsp_url: &str) -> String {
 
     match url::Url::parse(rtsp_url) {
         Ok(mut parsed) => {
-            if !parsed.username().is_empty() || parsed.password().is_some() {
-                let _ = parsed.set_username("******");
-                let _ = parsed.set_password(Some("******"));
+            if (!parsed.username().is_empty() || parsed.password().is_some())
+                && (parsed.set_username("******").is_err()
+                    || parsed.set_password(Some("******")).is_err())
+            {
+                return rtsp_url.to_string();
             }
             parsed.to_string()
         }
@@ -35,6 +37,14 @@ mod tests {
     fn redacts_username_only() {
         assert_eq!(
             redact_rtsp_url_for_logs("rtsp://admin@camera.local:8554/live"),
+            "rtsp://******:******@camera.local:8554/live",
+        );
+    }
+
+    #[test]
+    fn redacts_password_only() {
+        assert_eq!(
+            redact_rtsp_url_for_logs("rtsp://:pass@camera.local:8554/live"),
             "rtsp://******:******@camera.local:8554/live",
         );
     }
