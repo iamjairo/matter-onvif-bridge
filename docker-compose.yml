@@ -43,6 +43,8 @@ services:
     restart: unless-stopped
     # No profiles key → this service starts by default AND with the linux-bridge profile.
     # Docker Compose runs services without a profiles key in every `docker compose up` call.
+    volumes:
+      - ./docker/go2rtc/go2rtc.yaml:/config/go2rtc.yaml:ro
     ports:
       # API — used by the bridge to register streams and exchange SDP
       - "${GO2RTC_API_PORT:-1984}:1984"
