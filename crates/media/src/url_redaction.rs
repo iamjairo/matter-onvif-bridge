@@ -49,6 +49,9 @@ mod tests {
 
     #[test]
     fn leaves_unparsable_input_unchanged() {
-        assert_eq!(redact_rtsp_url_for_logs("not-a-valid-url"), "not-a-valid-url");
+        assert_eq!(
+            redact_rtsp_url_for_logs("not-a-valid-url"),
+            "not-a-valid-url"
+        );
     }
 }
