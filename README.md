@@ -397,7 +397,7 @@ bash scripts/install-go2rtc.sh
 GO2RTC_MODE=local cargo run --release -p matter-onvif-bridge
 ```
 
-The go2rtc container/image wiring lives under `docker/go2rtc/` (Dockerfile + tracked `go2rtc.yaml`, mounted by Compose at `/config/go2rtc.yaml`). Streams are registered dynamically by the bridge via the go2rtc REST API, so no manual stream configuration is needed.
+The Compose setup uses the upstream go2rtc image and mounts the tracked `docker/go2rtc/go2rtc.yaml` into the container at `/config/go2rtc.yaml`. Streams are registered dynamically by the bridge via the go2rtc REST API, so no manual stream configuration is needed.
 
 ### MediaMTX
 
