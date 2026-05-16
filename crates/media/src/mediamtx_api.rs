@@ -12,6 +12,8 @@
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
+use crate::rtsp_url::redact_rtsp_url_for_log;
+
 #[derive(Debug, Serialize)]
 struct PathConfig {
     source: String,
@@ -52,7 +54,12 @@ impl MediaMtxApi {
             source: rtsp_url.to_string(),
         };
 
-        debug!(name, rtsp_url, "Registering path in MediaMTX");
+        let rtsp_url_redacted = redact_rtsp_url_for_log(rtsp_url);
+        debug!(
+            name,
+            rtsp_url = rtsp_url_redacted,
+            "Registering path in MediaMTX"
+        );
 
         let resp = self
             .client
@@ -66,7 +73,10 @@ impl MediaMtxApi {
             // MediaMTX returns 400 when the path already exists. If the existing
             // path matches the URL we wanted, treat it as success.
             if resp.status().as_u16() == 400 && self.stream_matches(name, rtsp_url).await {
-                debug!(name, "MediaMTX path already exists with matching URL, skipping");
+                debug!(
+                    name,
+                    "MediaMTX path already exists with matching URL, skipping"
+                );
                 return Ok(());
             }
             return Err(format!(

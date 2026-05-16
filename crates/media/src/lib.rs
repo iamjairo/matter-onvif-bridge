@@ -12,5 +12,6 @@ pub mod go2rtc_manager;
 pub mod media_api;
 pub mod mediamtx_api;
 pub mod mediamtx_manager;
+mod rtsp_url;
 pub mod stream_manager;
 pub mod webrtc_session;
