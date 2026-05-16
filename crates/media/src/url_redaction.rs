@@ -7,18 +7,23 @@ pub(crate) fn redact_rtsp_url_for_logs(rtsp_url: &str) -> String {
         return String::new();
     }
 
-    match url::Url::parse(rtsp_url) {
-        Ok(mut parsed) => {
-            if (!parsed.username().is_empty() || parsed.password().is_some())
-                && (parsed.set_username("******").is_err()
-                    || parsed.set_password(Some("******")).is_err())
-            {
-                return rtsp_url.to_string();
-            }
-            parsed.to_string()
-        }
-        Err(_) => rtsp_url.to_string(),
+    let Ok(mut parsed) = url::Url::parse(rtsp_url) else {
+        return rtsp_url.to_string();
+    };
+
+    let has_credentials = !parsed.username().is_empty() || parsed.password().is_some();
+    if !has_credentials {
+        return parsed.to_string();
     }
+
+    // Replace credentials with redaction markers. If either setter fails (only
+    // possible for non-can_be_a_base URLs, which RTSP never is), return a fully
+    // opaque placeholder rather than leaking the original URL.
+    if parsed.set_username("******").is_err() || parsed.set_password(Some("******")).is_err() {
+        return "<rtsp-url-redacted>".to_string();
+    }
+
+    parsed.to_string()
 }
 
 #[cfg(test)]
