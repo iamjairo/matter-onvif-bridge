@@ -77,10 +77,10 @@ mod tests {
     }
 
     #[test]
-    fn redacts_credentials_in_edge_case_with_extra_at() {
+    fn redacts_credentials_with_fallback_when_parse_fails() {
         assert_eq!(
-            redact_rtsp_url_for_log("rtsp://user:secret@@example/stream"),
-            "rtsp://***:***@example/stream"
+            redact_rtsp_url_for_log("rtsp://user:secret@127.0.0.1:bad/stream"),
+            "rtsp://***:***@127.0.0.1:bad/stream"
         );
     }
 }
