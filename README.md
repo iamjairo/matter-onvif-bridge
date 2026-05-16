@@ -263,6 +263,9 @@ docker compose --profile linux-bridge up -d
 docker compose logs -f bridge
 ```
 
+`docker compose` builds the pinned go2rtc image from `docker/go2rtc/` on first
+run, including the repository's minimal `go2rtc.yaml`.
+
 For MediaMTX on Linux today, run the bridge natively and run MediaMTX in Docker:
 
 ```bash
@@ -397,7 +400,10 @@ bash scripts/install-go2rtc.sh
 GO2RTC_MODE=local cargo run --release -p matter-onvif-bridge
 ```
 
-The go2rtc container/image wiring lives under `docker/go2rtc/` (see the Dockerfile). Streams are registered dynamically by the bridge via the go2rtc REST API, so no manual stream configuration is needed.
+Docker Compose builds the pinned go2rtc image from `docker/go2rtc/`
+(`Dockerfile` + minimal `go2rtc.yaml`). Streams are registered dynamically by
+the bridge via the go2rtc REST API, so no manual stream configuration is
+needed.
 
 ### MediaMTX
 
@@ -572,7 +578,8 @@ matter-onvif-bridge/
 │           └── webrtc_session.rs   # SDP offer/answer + ICE negotiation
 ├── docker/
 │   └── go2rtc/
-│       └── Dockerfile          # go2rtc Docker image config
+│       ├── Dockerfile          # Pinned go2rtc Docker image for Compose
+│       └── go2rtc.yaml         # Minimal go2rtc config baked into that image
 └── scripts/
     ├── install-go2rtc.sh       # Download go2rtc binary for current platform
     ├── install-mediamtx.sh     # Download MediaMTX binary for current platform
