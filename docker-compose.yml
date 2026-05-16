@@ -37,7 +37,8 @@ services:
 
   # ── go2rtc ────────────────────────────────────────────────────────────────────
   go2rtc:
-    image: alexxit/go2rtc:latest
+    build:
+      context: ./docker/go2rtc
     container_name: matter-onvif-go2rtc
     restart: unless-stopped
     # No profiles key → this service starts by default AND with the linux-bridge profile.
