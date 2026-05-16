@@ -37,13 +37,12 @@ services:
 
   # ── go2rtc ────────────────────────────────────────────────────────────────────
   go2rtc:
-    image: alexxit/go2rtc:latest
+    build:
+      context: ./docker/go2rtc
     container_name: matter-onvif-go2rtc
     restart: unless-stopped
     # No profiles key → this service starts by default AND with the linux-bridge profile.
     # Docker Compose runs services without a profiles key in every `docker compose up` call.
-    volumes:
-      - ./docker/go2rtc/go2rtc.yaml:/config/go2rtc.yaml:ro
     ports:
       # API — used by the bridge to register streams and exchange SDP
       - "${GO2RTC_API_PORT:-1984}:1984"
@@ -56,7 +55,7 @@ services:
 
   # ── MediaMTX ──────────────────────────────────────────────────────────────────
   mediamtx:
-    image: bluenviron/mediamtx:latest
+    image: bluenviron/mediamtx:1.9.3
     container_name: matter-onvif-mediamtx
     restart: unless-stopped
     profiles: ["mediamtx"]

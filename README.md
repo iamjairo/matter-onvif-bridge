@@ -397,7 +397,7 @@ bash scripts/install-go2rtc.sh
 GO2RTC_MODE=local cargo run --release -p matter-onvif-bridge
 ```
 
-The go2rtc container/image wiring lives under `docker/go2rtc/` (see the Dockerfile). Streams are registered dynamically by the bridge via the go2rtc REST API, so no manual stream configuration is needed.
+The go2rtc container/image wiring lives under `docker/go2rtc/` (see the Dockerfile and bundled `go2rtc.yaml`). `docker compose up` builds that pinned wrapper image from the repo, so a clean checkout does not rely on an external bind-mounted config file. Streams are registered dynamically by the bridge via the go2rtc REST API, so no manual stream configuration is needed.
 
 ### MediaMTX
 
@@ -572,7 +572,8 @@ matter-onvif-bridge/
 │           └── webrtc_session.rs   # SDP offer/answer + ICE negotiation
 ├── docker/
 │   └── go2rtc/
-│       └── Dockerfile          # go2rtc Docker image config
+│       ├── Dockerfile          # pinned go2rtc Docker image wrapper
+│       └── go2rtc.yaml         # minimal go2rtc config baked into the image
 └── scripts/
     ├── install-go2rtc.sh       # Download go2rtc binary for current platform
     ├── install-mediamtx.sh     # Download MediaMTX binary for current platform
@@ -655,6 +656,13 @@ cargo fmt --all
 ```
 
 Dependabot is configured to open automated PRs for Cargo dependency updates, Docker base-image bumps, and GitHub Actions version pins.
+
+Pinned runtime/update strategy:
+
+- `docker compose` now builds `docker/go2rtc/`, whose Dockerfile pins the upstream `alexxit/go2rtc` base image and bakes in the tracked `docker/go2rtc/go2rtc.yaml`.
+- `docker-compose.yml` pins the `bluenviron/mediamtx` image tag instead of following `latest`.
+- `rs-matter` is pinned to a specific git revision in `Cargo.toml` and `crates/bridge/Cargo.toml`; update it intentionally by changing that revision and regenerating `Cargo.lock`.
+- Keep Docker and script defaults aligned when upgrading media-server versions so Docker, local installs, and docs describe the same supported baseline.
 
 ---
 

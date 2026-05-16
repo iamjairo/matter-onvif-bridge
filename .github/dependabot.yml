@@ -31,7 +31,7 @@ updates:
         update-types:
           - "patch"
     ignore:
-      # rs-matter is tracked via a git dependency (no version constraint).
+      # rs-matter is intentionally pinned to a git revision.
       # Dependabot cannot update git deps — skip to avoid false-positive PRs.
       - dependency-name: "rs-matter"
 
