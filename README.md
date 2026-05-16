@@ -538,6 +538,8 @@ matter-onvif-bridge/
 ├── docker-compose.yml          # go2rtc + MediaMTX + linux-bridge profiles
 ├── .env.example                # All environment variables with documentation
 ├── .github/
+│   ├── workflows/
+│   │   └── ci.yml              # PR/push validation (check, test, clippy)
 │   ├── labels.yml              # GitHub issue/PR label definitions
 │   └── dependabot.yml          # Automated dependency update config
 ├── crates/
