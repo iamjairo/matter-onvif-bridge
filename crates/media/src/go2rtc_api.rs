@@ -11,6 +11,8 @@ use std::collections::HashMap;
 use serde::Deserialize;
 use tracing::debug;
 
+use crate::redact_rtsp_url;
+
 #[derive(Debug, Deserialize)]
 struct StreamProducer {
     url: String,
@@ -54,7 +56,7 @@ impl Go2RtcApi {
             urlencoding::encode(rtsp_url),
         );
 
-        debug!(name, rtsp_url, "Registering stream in go2rtc");
+        debug!(name, redacted_url = %redact_rtsp_url(rtsp_url), "Registering stream in go2rtc");
 
         let resp = self
             .client
@@ -247,6 +249,72 @@ mod tests {
         Ok((port, handle))
     }
 
+    async fn spawn_two_request_server(
+        status1: u16,
+        body1: &'static [u8],
+        status2: u16,
+        body2: &'static [u8],
+    ) -> Result<(u16, tokio::task::JoinHandle<(String, String)>), io::Error> {
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let port = listener.local_addr()?.port();
+
+        let handle = tokio::spawn(async move {
+            // First request
+            let (mut socket, _) = listener.accept().await.expect("accept 1 failed");
+            let mut buf = [0_u8; 4096];
+            let n = socket.read(&mut buf).await.expect("read 1 failed");
+            let request1 = String::from_utf8_lossy(&buf[..n]).to_string();
+
+            let status_text1 = match status1 {
+                200 => "OK",
+                400 => "Bad Request",
+                404 => "Not Found",
+                _ => "OK",
+            };
+            let response1 = format!(
+                "HTTP/1.1 {status1} {status_text1}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body1.len()
+            );
+            socket
+                .write_all(response1.as_bytes())
+                .await
+                .expect("response 1 head write failed");
+            socket
+                .write_all(body1)
+                .await
+                .expect("response 1 body write failed");
+            drop(socket);
+
+            // Second request
+            let (mut socket, _) = listener.accept().await.expect("accept 2 failed");
+            let n = socket.read(&mut buf).await.expect("read 2 failed");
+            let request2 = String::from_utf8_lossy(&buf[..n]).to_string();
+
+            let status_text2 = match status2 {
+                200 => "OK",
+                400 => "Bad Request",
+                404 => "Not Found",
+                _ => "OK",
+            };
+            let response2 = format!(
+                "HTTP/1.1 {status2} {status_text2}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body2.len()
+            );
+            socket
+                .write_all(response2.as_bytes())
+                .await
+                .expect("response 2 head write failed");
+            socket
+                .write_all(body2)
+                .await
+                .expect("response 2 body write failed");
+
+            (request1, request2)
+        });
+
+        Ok((port, handle))
+    }
+
     #[tokio::test]
     async fn snapshot_jpeg_uses_expected_endpoint_and_returns_bytes() {
         let jpeg_bytes = b"\xFF\xD8\xFF\xD9";
@@ -258,5 +326,26 @@ mod tests {
 
         let request = handle.await.unwrap();
         assert!(request.starts_with("GET /api/frame.jpeg?src=front-door "));
+    }
+
+    #[tokio::test]
+    async fn add_stream_tolerates_400_when_stream_already_registered() {
+        // go2rtc returns 400 when the config file is read-only, then the client
+        // calls GET /api/streams to confirm the stream is registered in memory.
+        let streams_json = br#"{"cam1":{"producers":[{"url":"rtsp://u:p@192.168.1.10:554/s"}]}}"#;
+        let (port, handle) =
+            spawn_two_request_server(400, b"config is read-only", 200, streams_json)
+                .await
+                .unwrap();
+        let api = Go2RtcApi::new("127.0.0.1", port);
+
+        let result = api
+            .add_stream("cam1", "rtsp://u:p@192.168.1.10:554/s")
+            .await;
+        assert!(result.is_ok(), "expected Ok but got: {result:?}");
+
+        let (req1, req2) = handle.await.unwrap();
+        assert!(req1.starts_with("PUT /api/streams?"));
+        assert!(req2.starts_with("GET /api/streams "));
     }
 }

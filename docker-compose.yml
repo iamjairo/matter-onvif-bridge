@@ -55,7 +55,7 @@ services:
 
   # ── MediaMTX ──────────────────────────────────────────────────────────────────
   mediamtx:
-    image: bluenviron/mediamtx:latest
+    image: bluenviron/mediamtx:1.12.2
     container_name: matter-onvif-mediamtx
     restart: unless-stopped
     profiles: ["mediamtx"]

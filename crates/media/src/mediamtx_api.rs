@@ -12,6 +12,8 @@
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
+use crate::redact_rtsp_url;
+
 #[derive(Debug, Serialize)]
 struct PathConfig {
     source: String,
@@ -52,7 +54,7 @@ impl MediaMtxApi {
             source: rtsp_url.to_string(),
         };
 
-        debug!(name, rtsp_url, "Registering path in MediaMTX");
+        debug!(name, redacted_url = %redact_rtsp_url(rtsp_url), "Registering path in MediaMTX");
 
         let resp = self
             .client
@@ -310,6 +312,69 @@ mod tests {
         Ok((port, handle))
     }
 
+    async fn spawn_two_request_server(
+        status1: u16,
+        body1: &'static str,
+        status2: u16,
+        body2: &'static str,
+    ) -> Result<(u16, tokio::task::JoinHandle<(MockRequest, MockRequest)>), io::Error> {
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let port = listener.local_addr()?.port();
+
+        let handle = tokio::spawn(async move {
+            // First request
+            let (mut socket, _) = listener.accept().await.expect("accept 1 failed");
+            let req1 = read_http_request(&mut socket)
+                .await
+                .expect("request 1 parsing failed");
+
+            let status_text1 = match status1 {
+                200 => "OK",
+                201 => "Created",
+                400 => "Bad Request",
+                404 => "Not Found",
+                500 => "Internal Server Error",
+                _ => "OK",
+            };
+            let response1 = format!(
+                "HTTP/1.1 {status1} {status_text1}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body1}",
+                body1.len()
+            );
+            socket
+                .write_all(response1.as_bytes())
+                .await
+                .expect("response 1 write failed");
+            drop(socket);
+
+            // Second request
+            let (mut socket, _) = listener.accept().await.expect("accept 2 failed");
+            let req2 = read_http_request(&mut socket)
+                .await
+                .expect("request 2 parsing failed");
+
+            let status_text2 = match status2 {
+                200 => "OK",
+                201 => "Created",
+                400 => "Bad Request",
+                404 => "Not Found",
+                500 => "Internal Server Error",
+                _ => "OK",
+            };
+            let response2 = format!(
+                "HTTP/1.1 {status2} {status_text2}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body2}",
+                body2.len()
+            );
+            socket
+                .write_all(response2.as_bytes())
+                .await
+                .expect("response 2 write failed");
+
+            (req1, req2)
+        });
+
+        Ok((port, handle))
+    }
+
     #[tokio::test]
     async fn readiness_probe_returns_true_on_200() {
         let (api_port, handle) = spawn_single_request_server(200, "{}").await.unwrap();
@@ -399,5 +464,28 @@ mod tests {
         let api = MediaMtxApi::new("127.0.0.1", 9997, 8889);
         let err = api.snapshot_jpeg("cam1").await.unwrap_err();
         assert!(err.contains("not supported"));
+    }
+
+    #[tokio::test]
+    async fn add_stream_tolerates_400_when_path_already_exists() {
+        // MediaMTX returns 400 when the path already exists, then the client
+        // calls GET /v3/config/paths/get/{name} to confirm the source matches.
+        let path_config_json = r#"{"source":"rtsp://u:p@192.168.1.10:554/live"}"#;
+        let (api_port, handle) =
+            spawn_two_request_server(400, "path already exists", 200, path_config_json)
+                .await
+                .unwrap();
+        let api = MediaMtxApi::new("127.0.0.1", api_port, api_port);
+
+        let result = api
+            .add_stream("cam1", "rtsp://u:p@192.168.1.10:554/live")
+            .await;
+        assert!(result.is_ok(), "expected Ok but got: {result:?}");
+
+        let (req1, req2) = handle.await.unwrap();
+        assert_eq!(req1.method, "POST");
+        assert_eq!(req1.path, "/v3/config/paths/add/cam1");
+        assert_eq!(req2.method, "GET");
+        assert_eq!(req2.path, "/v3/config/paths/get/cam1");
     }
 }
