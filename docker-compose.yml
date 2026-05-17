@@ -59,6 +59,8 @@ services:
     container_name: matter-onvif-mediamtx
     restart: unless-stopped
     profiles: ["mediamtx"]
+    volumes:
+      - ./docker/mediamtx/mediamtx.yml:/mediamtx.yml:ro
     environment:
       MTX_LOGLEVEL: info
     ports:

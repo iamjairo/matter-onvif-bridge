@@ -1,0 +1,14 @@
+# MediaMTX configuration for matter-onvif-bridge
+# Streams are registered dynamically by the bridge via the API.
+
+# API settings
+api: yes
+apiAddress: :9997
+
+# WebRTC / WHEP settings
+webrtc: yes
+webrtcAddress: :8889
+
+# RTSP settings
+rtsp: yes
+rtspAddress: :8554

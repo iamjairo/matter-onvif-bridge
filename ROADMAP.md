@@ -139,10 +139,10 @@ For this personal repo, keep things simple:
 
 ## Immediate Next Step
 
-After Phase 1 merge:
+Phase 1 has been merged into `main` (PR #14). Remaining items:
 
-- [ ] merge final implementation into `main`
-- [ ] close extra/unneeded PRs
+- [x] merge final implementation into `main`
+- [x] close extra/unneeded PRs
 - [ ] begin Google Home validation
 - [ ] begin Apple Home validation
 - [ ] update README with actual tested-controller results

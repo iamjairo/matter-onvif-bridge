@@ -85,7 +85,7 @@ cargo run --release -p matter-onvif-bridge
 
 | Component | Required on | Notes |
 |-----------|-------------|-------|
-| Rust 1.82+ | Build host | `rustup update stable` |
+| Rust 1.85+ | Build host | `rustup update stable` |
 | `libdbus-1` | Linux runtime | mDNS via avahi-daemon |
 | `libavahi-client` | Linux runtime | mDNS via zeroconf |
 | Docker | All platforms | For go2rtc or MediaMTX container |
@@ -193,7 +193,7 @@ Use the manual RTSP path only for cameras that need it, or disable/remove the ov
 | `MATTER_PASSCODE` | `20202021` | Commissioning passcode *(change before production use)* |
 | `MATTER_DISCRIMINATOR` | `3840` | Commissioning discriminator |
 | `MATTER_STORAGE_PATH` | `.matter-storage` | Directory for persistent commissioning state |
-| `LOG_LEVEL` | `info` | Log verbosity: `trace`, `debug`, `info`, `warn`, `error` |
+| `RUST_LOG` | `info` | Log verbosity filter (see [env_logger docs](https://docs.rs/env_logger)) |
 
 ---
 
@@ -282,6 +282,9 @@ echo "net.ipv6.conf.all.disable_ipv6=0" | sudo tee -a /etc/sysctl.conf
 ```
 
 ### Raspberry Pi
+
+> **Note:** The recommended deployment is Docker on x86 Linux (see above).
+> The Pi instructions below are maintained for users running directly on ARM hardware.
 
 **Option A — Cross-compile from your Mac/PC**
 
@@ -421,7 +424,7 @@ The bridge registers each camera's RTSP stream under a path in MediaMTX via its 
 
 ## Cross-Compilation
 
-The `Cross.toml` in the repo root is pre-configured for `aarch64-unknown-linux-gnu` (64-bit ARM — Raspberry Pi 3B+/4/5). It installs `libdbus-1-dev` and `libavahi-client-dev` for the target inside the cross container.
+`cross` handles `aarch64-unknown-linux-gnu` (64-bit ARM — Raspberry Pi 3B+/4/5) out of the box. For targets that need `libdbus-1-dev` and `libavahi-client-dev`, `cross` installs them automatically in its default container images.
 
 ```bash
 cargo install cross --git https://github.com/cross-rs/cross
@@ -533,7 +536,6 @@ bash scripts/reset-device.sh
 ```
 matter-onvif-bridge/
 ├── Cargo.toml                  # Workspace manifest
-├── Cross.toml                  # cross-rs cross-compilation config
 ├── Dockerfile                  # Multi-stage bridge Docker image
 ├── docker-compose.yml          # go2rtc + MediaMTX + linux-bridge profiles
 ├── .env.example                # All environment variables with documentation
@@ -550,12 +552,21 @@ matter-onvif-bridge/
 │   │       └── mdns.rs         # mDNS responder (avahi/zeroconf backend)
 │   ├── matter-camera/          # Custom Matter cluster implementations
 │   │   └── src/
+│   │       ├── lib.rs                # Shared helpers (TLV parsing, stream usage)
 │   │       ├── cluster_av_stream.rs  # CameraAvStreamManagement (0x0551)
 │   │       ├── cluster_webrtc.rs     # WebRtcTransportProvider (0x0553)
 │   │       ├── cluster_occupancy.rs  # OccupancySensing wrapper
 │   │       └── types.rs              # Matter 1.5 camera type definitions
 │   ├── onvif-client/           # ONVIF discovery, client, and registry
+│   │   ├── examples/
+│   │   │   ├── probe_all.rs          # Discover + dump all camera info
+│   │   │   ├── probe_capabilities.rs # Probe camera capabilities
+│   │   │   ├── probe_motion.rs       # Test motion event subscriptions
+│   │   │   ├── probe_names.rs        # List camera friendly names
+│   │   │   ├── probe_scopes.rs       # Dump ONVIF scopes
+│   │   │   └── test_connect.rs       # Basic ONVIF connectivity test
 │   │   └── src/
+│   │       ├── lib.rs          # Crate root / re-exports
 │   │       ├── client.rs       # Per-camera ONVIF connect + info fetch
 │   │       ├── discovery.rs    # WS-Discovery loop + static camera list
 │   │       ├── motion.rs       # PullPoint motion-alarm event pump
@@ -563,6 +574,7 @@ matter-onvif-bridge/
 │   │       └── types.rs        # Camera device/profile types
 │   └── media/                  # Media-server integration
 │       └── src/
+│           ├── lib.rs              # Crate root / re-exports
 │           ├── media_api.rs        # AnyMediaApi — unified go2rtc/MediaMTX API
 │           ├── go2rtc_api.rs       # go2rtc REST API client
 │           ├── go2rtc_manager.rs   # go2rtc process lifecycle
@@ -571,8 +583,10 @@ matter-onvif-bridge/
 │           ├── stream_manager.rs   # Syncs CameraRegistry → media server
 │           └── webrtc_session.rs   # SDP offer/answer + ICE negotiation
 ├── docker/
-│   └── go2rtc/
-│       └── Dockerfile          # go2rtc Docker image config
+│   ├── go2rtc/
+│   │   └── go2rtc.yaml         # go2rtc configuration
+│   └── mediamtx/
+│       └── mediamtx.yml        # MediaMTX configuration
 └── scripts/
     ├── install-go2rtc.sh       # Download go2rtc binary for current platform
     ├── install-mediamtx.sh     # Download MediaMTX binary for current platform
