@@ -16,6 +16,7 @@ use strum::FromRepr;
 use tracing::debug;
 
 use crate::types::CameraEndpointState;
+use crate::{parse_nullable_u16, parse_stream_usage};
 
 pub const CLUSTER_ID: u32 = 0x0553;
 const CLUSTER_REVISION: u16 = 1;
@@ -342,24 +343,6 @@ fn provide_offer_stream_usage(
 ) -> crate::types::StreamUsage {
     // StreamUsage is not a ProvideOffer field in Matter 1.5. Always default to LiveView.
     crate::types::StreamUsage::LiveView
-}
-
-fn parse_stream_usage(v: u8) -> crate::types::StreamUsage {
-    match v {
-        0 => crate::types::StreamUsage::Internal,
-        1 => crate::types::StreamUsage::Recording,
-        2 => crate::types::StreamUsage::Analysis,
-        _ => crate::types::StreamUsage::LiveView,
-    }
-}
-
-fn parse_nullable_u16(elem: rs_matter::tlv::TLVElement<'_>) -> Result<Option<u16>, Error> {
-    if elem.is_empty() || elem.null().is_ok() {
-        return Ok(None);
-    }
-    elem.u16()
-        .map(Some)
-        .map_err(|_| ErrorCode::InvalidCommand.into())
 }
 
 fn parse_ice_candidates(fields: &rs_matter::tlv::TLVSequence<'_>) -> Result<Vec<String>, Error> {

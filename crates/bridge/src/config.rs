@@ -7,7 +7,6 @@ pub struct Config {
     pub manual_rtsp_cameras: Vec<ManualRtspCameraConfig>,
     pub media: MediaConfig,
     pub matter: MatterConfig,
-    pub log_level: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -106,7 +105,6 @@ impl Default for Config {
                 discriminator: 3840,
                 storage_path: ".matter-storage".into(),
             },
-            log_level: "info".into(),
         }
     }
 }
@@ -223,7 +221,6 @@ impl Config {
                 storage_path: env::var("MATTER_STORAGE_PATH")
                     .unwrap_or(defaults.matter.storage_path),
             },
-            log_level: env::var("LOG_LEVEL").unwrap_or(defaults.log_level),
         }
     }
 }

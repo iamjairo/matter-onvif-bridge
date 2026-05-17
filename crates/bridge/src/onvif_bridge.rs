@@ -15,6 +15,7 @@ use std::time::Duration;
 use matter_camera::cluster_occupancy::OccupancyDataver;
 use matter_camera::types::{CameraEndpointState, VideoResolution, VideoSensorParams};
 use media::go2rtc_api::Go2RtcApi;
+use media::stream_manager::sanitize_stream_name;
 use media::go2rtc_manager::{Go2RtcManager, Go2RtcMode};
 use media::media_api::AnyMediaApi;
 use media::mediamtx_api::MediaMtxApi;
@@ -420,19 +421,6 @@ fn apply_fallback_video_state(state: &mut CameraEndpointState) {
     state.max_encoded_pixel_rate =
         FALLBACK_VIDEO_WIDTH as u32 * FALLBACK_VIDEO_HEIGHT as u32 * FALLBACK_VIDEO_FPS as u32;
     state.max_concurrent_video_encoders = 1;
-}
-
-/// Sanitize camera ID into a go2rtc-compatible stream name.
-fn sanitize_stream_name(id: &str) -> String {
-    id.chars()
-        .map(|c| {
-            if c.is_alphanumeric() || c == '-' || c == '_' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect()
 }
 
 fn manual_rtsp_camera_device(camera: &ManualRtspCameraConfig) -> CameraDevice {

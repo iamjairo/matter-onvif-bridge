@@ -39,7 +39,7 @@ pub async fn run_stream_manager(
             info!(
                 camera_id = camera.id,
                 stream_name,
-                "Stream already registered in go2rtc with matching URL, skipping"
+                "Stream already registered in media server with matching URL, skipping"
             );
             continue;
         }
@@ -49,7 +49,7 @@ pub async fn run_stream_manager(
                 info!(
                     camera_id = camera.id,
                     stream_name,
-                    "Registered RTSP stream in go2rtc (startup snapshot)"
+                    "Registered RTSP stream in media server (startup snapshot)"
                 );
             }
             Err(e) => {
@@ -57,7 +57,7 @@ pub async fn run_stream_manager(
                     camera_id = camera.id,
                     stream_name,
                     err = %e,
-                    "Failed to register stream in go2rtc (startup snapshot)"
+                    "Failed to register stream in media server (startup snapshot)"
                 );
             }
         }
@@ -82,7 +82,7 @@ pub async fn run_stream_manager(
                     info!(
                         camera_id = camera.id,
                         stream_name,
-                        "Stream already registered in go2rtc with matching URL, skipping"
+                        "Stream already registered in media server with matching URL, skipping"
                     );
                     continue;
                 }
@@ -91,7 +91,7 @@ pub async fn run_stream_manager(
                     Ok(()) => {
                         info!(
                             camera_id = camera.id,
-                            stream_name, "Registered RTSP stream in go2rtc"
+                            stream_name, "Registered RTSP stream in media server"
                         );
                     }
                     Err(e) => {
@@ -99,7 +99,7 @@ pub async fn run_stream_manager(
                             camera_id = camera.id,
                             stream_name,
                             err = %e,
-                            "Failed to register stream in go2rtc"
+                            "Failed to register stream in media server"
                         );
                     }
                 }
@@ -109,14 +109,14 @@ pub async fn run_stream_manager(
 
                 match api.remove_stream(&stream_name).await {
                     Ok(()) => {
-                        info!(camera_id = id, stream_name, "Removed stream from go2rtc");
+                        info!(camera_id = id, stream_name, "Removed stream from media server");
                     }
                     Err(e) => {
                         error!(
                             camera_id = id,
                             stream_name,
                             err = %e,
-                            "Failed to remove stream from go2rtc"
+                            "Failed to remove stream from media server"
                         );
                     }
                 }
@@ -135,9 +135,9 @@ pub async fn run_stream_manager(
     }
 }
 
-/// Sanitize camera ID into a go2rtc-compatible stream name.
-/// Replaces non-alphanumeric characters (except - and _) with underscores.
-fn sanitize_stream_name(id: &str) -> String {
+/// Sanitize camera ID into a media-server-compatible stream name.
+/// Replaces non-alphanumeric characters (except `-` and `_`) with underscores.
+pub fn sanitize_stream_name(id: &str) -> String {
     id.chars()
         .map(|c| {
             if c.is_alphanumeric() || c == '-' || c == '_' {

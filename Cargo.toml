@@ -19,9 +19,6 @@ rs-matter = { git = "https://github.com/project-chip/rs-matter", package = "rs-m
 # ONVIF client
 oxvif = "0.9.4"
 
-# RTSP client (for future native WebRTC pipeline)
-retina = "0.4"
-
 # Async runtime
 tokio = { version = "1", features = ["full"] }
 
@@ -37,8 +34,6 @@ serde_json = "1"
 
 # Logging
 tracing = { version = "0.1", features = ["log"] }
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-
 # Environment
 dotenvy = "0.15"
 
