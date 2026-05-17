@@ -6,7 +6,7 @@
 #   bash install-mediamtx.sh 1.9.3 ./bin
 set -euo pipefail
 
-VERSION="${1:-1.9.3}"
+VERSION="${1:-1.12.2}"
 INSTALL_DIR="${2:-./bin}"
 
 # Detect platform

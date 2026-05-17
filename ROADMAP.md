@@ -28,9 +28,9 @@ Primary priorities:
 
 ---
 
-## Phase 1 Status
+## Phase 1 — Complete
 
-### Completed
+### PR #14: Core bridge implementation
 - [x] Raspberry Pi setup/install path fix
 - [x] manual RTSP fallback support
 - [x] improved AV capability mapping from ONVIF-derived data
@@ -40,8 +40,47 @@ Primary priorities:
 - [x] docs improved for deployment/configuration/architecture
 - [x] wording cleanup to avoid overclaiming compatibility
 
+### PR #32: Audit fixes
+- [x] registry entry/update handling
+- [x] boxed discovery event payload
+- [x] startup stream snapshot behavior
+- [x] tolerant media backend registration logic (400-tolerance)
+- [x] `.gitignore` / `.env.example` hygiene improvements
+- [x] Amazon Alexa added as validation target
+
+### PR #35: Clusters, security hardening, README remaster
+- [x] **WebRTCTransportRequestor** (0x0554) — functional SDP exchange callback
+- [x] **ZoneManagement** (0x0550) — in-memory zone CRUD with create/update/delete
+- [x] **PushAvStreamTransport** (0x0555) — stub, reports zero transport connections
+- [x] **Chime** (0x0556) — stub, reports zero chime sounds
+- [x] RTSP credential redaction in all media backend logging (`redact_rtsp_url()`)
+- [x] CI workflow permissions (`contents: read`) — resolved code-scanning alerts
+- [x] rs-matter pinned to specific commit (`rev = 6574649f...`)
+- [x] MediaMTX Docker image pinned to `1.12.2` (was `:latest`)
+- [x] go2rtc Docker image already pinned to `1.9.7`
+- [x] Regression tests for 400-tolerance in both go2rtc and MediaMTX
+- [x] `.gitignore` duplicate `.env` entry removed
+- [x] `scripts/setup-pi.sh` deleted (no longer relevant)
+- [x] README.md fully remastered — CI badge, cluster status table, tighter layout
+
+### Dependabot PRs (merged)
+- [x] `actions/checkout` bumped v4 → v6 (PR #34)
+- [x] Rust Docker image bumped 1.87 → 1.95 (PR #33)
+
+### Dependabot alerts
+- [x] Alert #3 (`rand` 0.8 unsoundness) — dismissed as tolerable risk; transitive dep from oxvif/rs-matter, not exploitable in this project
+
+### GitHub issues #17–#23 — all closed
+- [x] #17 — meta-issue: post-PR #14 hardening
+- [x] #18 — missing docker/go2rtc/go2rtc.yaml
+- [x] #19 — RTSP credential redaction
+- [x] #20 — CI workflows + Dependabot mismatch
+- [x] #21 — dependency pinning
+- [x] #22 — regression tests for 400-tolerance
+- [x] #23 — cleanup (gitignore, logging, poison handling)
+
 ### Notes
-- Snapshot support is currently backend-dependent
+- Snapshot support is currently backend-dependent (go2rtc only)
 - WebRTC support is still bridge-oriented, not full native-camera parity
 - This project is still a bridge MVP+, not a full Matter camera reference implementation
 
@@ -114,11 +153,11 @@ Primary priorities:
 
 These are lower priority unless I actually need them:
 
-- [ ] recording / Push AV upload flows
-- [ ] zone management
-- [ ] chime-related behavior
+- [ ] recording / Push AV upload flows (PushAvStreamTransport stub is in place)
+- [ ] zone management enhancements (ZoneManagement CRUD is in place)
+- [ ] chime behavior (Chime stub is in place)
 - [ ] broader controller compatibility work
-- [ ] more polished Docker/full-stack deployment symmetry
+- [ ] more polished Docker/full-stack deployment symmetry (MediaMTX full-stack profile)
 
 ---
 
@@ -127,8 +166,10 @@ These are lower priority unless I actually need them:
 - WebRTC behavior is bridge-limited and controller-oriented
 - `SolicitOffer` is handled conservatively (`deferredOffer=true`)
 - `ProvideAnswer` / `ProvideICECandidates` are accepted/validated but do not currently drive backend renegotiation
-- snapshot support is not identical across media backends
-- this repo is not intended to fully clone the native CHIP Linux camera app
+- Snapshot support is not identical across media backends (go2rtc only)
+- PushAvStreamTransport, Chime are stubs (report zero capabilities)
+- ZoneManagement zones are in-memory only (not persisted across restarts)
+- This repo is not intended to fully clone the native CHIP Linux camera app
 
 ---
 
@@ -146,12 +187,11 @@ For this personal repo, keep things simple:
 
 ## Immediate Next Step
 
-Phase 1 has been merged into `main` (PR #14). Remaining items:
+Phase 1 is complete. All issues closed, all PRs merged. Next:
 
-- [x] merge final implementation into `main`
-- [x] close extra/unneeded PRs
 - [ ] begin Google Home validation
 - [ ] begin Apple Home validation
+- [ ] begin Amazon Alexa validation
 - [ ] update README with actual tested-controller results
 
 ---

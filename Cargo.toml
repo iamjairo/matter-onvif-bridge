@@ -10,7 +10,7 @@ members = [
 [workspace.package]
 edition = "2024"
 license = "MIT"
-repository = "https://github.com/user/matter-onvif-bridge"
+repository = "https://github.com/iamjairo/matter-onvif-bridge"
 
 [workspace.dependencies]
 # Matter protocol
