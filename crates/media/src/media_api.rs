@@ -70,3 +70,59 @@ pub fn extract_ice_candidates(sdp: &str) -> Vec<String> {
         .map(|line| line.trim().to_string())
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_ice_candidates_from_sdp() {
+        let sdp = "\
+v=0\r\n\
+o=- 123456 2 IN IP4 127.0.0.1\r\n\
+s=-\r\n\
+t=0 0\r\n\
+m=video 9 UDP/TLS/RTP/SAVPF 96\r\n\
+a=candidate:1 1 UDP 2130706431 192.168.1.100 5004 typ host\r\n\
+a=candidate:2 1 UDP 1694498815 203.0.113.5 5004 typ srflx raddr 192.168.1.100 rport 5004\r\n\
+a=rtpmap:96 H264/90000\r\n";
+
+        let candidates = extract_ice_candidates(sdp);
+        assert_eq!(candidates.len(), 2);
+        assert!(candidates[0].starts_with("a=candidate:1"));
+        assert!(candidates[1].starts_with("a=candidate:2"));
+    }
+
+    #[test]
+    fn test_extract_ice_candidates_empty() {
+        let sdp = "\
+v=0\r\n\
+o=- 123456 2 IN IP4 127.0.0.1\r\n\
+s=-\r\n\
+t=0 0\r\n\
+m=video 9 UDP/TLS/RTP/SAVPF 96\r\n\
+a=rtpmap:96 H264/90000\r\n";
+
+        let candidates = extract_ice_candidates(sdp);
+        assert!(candidates.is_empty());
+    }
+
+    #[test]
+    fn test_extract_ice_candidates_mixed() {
+        let sdp = "\
+v=0\r\n\
+a=group:BUNDLE 0\r\n\
+m=video 9 UDP/TLS/RTP/SAVPF 96\r\n\
+a=mid:0\r\n\
+a=candidate:1 1 UDP 2130706431 10.0.0.1 5004 typ host\r\n\
+a=rtpmap:96 H264/90000\r\n\
+a=fmtp:96 profile-level-id=42e01f\r\n\
+a=candidate:2 1 TCP 1015022591 10.0.0.1 9 typ host tcptype active\r\n\
+a=end-of-candidates\r\n";
+
+        let candidates = extract_ice_candidates(sdp);
+        assert_eq!(candidates.len(), 2);
+        assert!(candidates[0].contains("typ host"));
+        assert!(candidates[1].contains("TCP"));
+    }
+}

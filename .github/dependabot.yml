@@ -52,22 +52,6 @@ updates:
       prefix: "docker"
       include: "scope"
 
-  - package-ecosystem: "docker"
-    # Scans docker/go2rtc/Dockerfile
-    directory: "/docker/go2rtc"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-      time: "06:00"
-      timezone: "UTC"
-    open-pull-requests-limit: 5
-    labels:
-      - "dependencies"
-      - "area: docker"
-    commit-message:
-      prefix: "docker"
-      include: "scope"
-
   # ── GitHub Actions ────────────────────────────────────────────────────────
   # No workflow files exist yet, but Dependabot is pre-configured so that
   # any actions added in future (CI, release) are automatically tracked.

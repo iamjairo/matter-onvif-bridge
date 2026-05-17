@@ -35,3 +35,25 @@ pub(crate) fn parse_nullable_u16(elem: rs_matter::tlv::TLVElement<'_>) -> Result
         .map(Some)
         .map_err(|_| ErrorCode::InvalidCommand.into())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use types::StreamUsage;
+
+    #[test]
+    fn test_parse_stream_usage_known_values() {
+        assert_eq!(parse_stream_usage(0), StreamUsage::Internal);
+        assert_eq!(parse_stream_usage(1), StreamUsage::Recording);
+        assert_eq!(parse_stream_usage(2), StreamUsage::Analysis);
+        assert_eq!(parse_stream_usage(3), StreamUsage::LiveView);
+    }
+
+    #[test]
+    fn test_parse_stream_usage_unknown_defaults() {
+        // Any value outside the 0-3 range should default to LiveView.
+        assert_eq!(parse_stream_usage(4), StreamUsage::LiveView);
+        assert_eq!(parse_stream_usage(99), StreamUsage::LiveView);
+        assert_eq!(parse_stream_usage(255), StreamUsage::LiveView);
+    }
+}
