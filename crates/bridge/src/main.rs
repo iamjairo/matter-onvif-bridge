@@ -41,8 +41,12 @@ use rs_matter::utils::storage::pooled::PooledBuffers;
 use rs_matter::{Matter, clusters, devices, root_endpoint};
 
 use matter_camera::cluster_av_stream::{AV_STREAM_CLUSTER, AvStreamHandler, SnapshotCaptureResult};
+use matter_camera::cluster_chime::{CHIME_CLUSTER, ChimeHandler};
 use matter_camera::cluster_occupancy::{OCCUPANCY_CLUSTER, OccupancyDataver, OccupancyHandler};
+use matter_camera::cluster_push_av::{PUSH_AV_CLUSTER, PushAvHandler};
 use matter_camera::cluster_webrtc::{WEBRTC_CLUSTER, WebRtcHandler};
+use matter_camera::cluster_webrtc_requestor::{WEBRTC_REQUESTOR_CLUSTER, WebRtcRequestorHandler};
+use matter_camera::cluster_zone_mgmt::{ZONE_MGMT_CLUSTER, ZoneManagementHandler};
 use matter_camera::types::CameraEndpointState;
 
 pub use rs_matter::dm::clusters::decl::bridged_device_basic_information::{
@@ -163,6 +167,26 @@ fn main() -> Result<(), Error> {
         })
         .collect();
 
+    // WebRTCTransportRequestor handlers — wired to media backend like the provider.
+    let mut webrtc_requestor_handlers: Vec<WebRtcRequestorHandler> = (0..MAX_CAMERAS)
+        .map(|_| WebRtcRequestorHandler::new(Dataver::new_rand(&mut rand)))
+        .collect();
+
+    // ZoneManagement handlers — in-memory zone CRUD per endpoint.
+    let zone_mgmt_handlers: Vec<ZoneManagementHandler> = (0..MAX_CAMERAS)
+        .map(|_| ZoneManagementHandler::new(Dataver::new_rand(&mut rand)))
+        .collect();
+
+    // PushAvStreamTransport stubs — no push transport supported.
+    let push_av_handlers: Vec<PushAvHandler> = (0..MAX_CAMERAS)
+        .map(|_| PushAvHandler::new(Dataver::new_rand(&mut rand)))
+        .collect();
+
+    // Chime stubs — no chime hardware.
+    let chime_handlers: Vec<ChimeHandler> = (0..MAX_CAMERAS)
+        .map(|_| ChimeHandler::new(Dataver::new_rand(&mut rand)))
+        .collect();
+
     // Start ONVIF + go2rtc bridge on a separate tokio thread
     let registry = onvif_client::registry::CameraRegistry::new(64);
     let media_bridge =
@@ -187,6 +211,36 @@ fn main() -> Result<(), Error> {
 
             // Run the async SDP exchange on a one-shot tokio runtime
             // (we're on the Matter executor thread, not a tokio context)
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|e| format!("Failed to create tokio runtime: {e}"))?;
+
+            let api = api.clone();
+            rt.block_on(async {
+                let session = media::webrtc_session::WebRtcSession::new(stream_name, api);
+                let result = session.negotiate(sdp_offer).await?;
+                Ok((result.sdp_answer, result.ice_candidates))
+            })
+        }));
+    }
+
+    // Wire SDP exchange callbacks into WebRTCTransportRequestor handlers.
+    for (i, handler) in webrtc_requestor_handlers.iter_mut().enumerate() {
+        let api = media_bridge.api.clone();
+        let stream_names = media_bridge.stream_names.clone();
+
+        handler.set_sdp_exchange(Box::new(move |sdp_offer: &str| {
+            let stream_name = {
+                let names = stream_names
+                    .read()
+                    .map_err(|e| format!("Lock error: {e}"))?;
+                names
+                    .get(&i)
+                    .cloned()
+                    .ok_or_else(|| format!("No stream registered for endpoint slot {i}"))?
+            };
+
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
@@ -247,6 +301,10 @@ fn main() -> Result<(), Error> {
             rand,
             &av_handlers,
             &webrtc_handlers,
+            &webrtc_requestor_handlers,
+            &zone_mgmt_handlers,
+            &push_av_handlers,
+            &chime_handlers,
             &occupancy_handlers,
             &camera_states,
         ),
@@ -381,6 +439,10 @@ macro_rules! camera_endpoints {
                         BridgedHandler::CLUSTER,
                         AV_STREAM_CLUSTER,
                         WEBRTC_CLUSTER,
+                        WEBRTC_REQUESTOR_CLUSTER,
+                        ZONE_MGMT_CLUSTER,
+                        PUSH_AV_CLUSTER,
+                        CHIME_CLUSTER,
                         OCCUPANCY_CLUSTER
                     ),
                 },
@@ -395,7 +457,11 @@ macro_rules! camera_endpoints {
                         groups::GroupsHandler::CLUSTER,
                         BridgedHandler::CLUSTER,
                         AV_STREAM_CLUSTER,
-                        WEBRTC_CLUSTER
+                        WEBRTC_CLUSTER,
+                        WEBRTC_REQUESTOR_CLUSTER,
+                        ZONE_MGMT_CLUSTER,
+                        PUSH_AV_CLUSTER,
+                        CHIME_CLUSTER
                     ),
                 },
             )*
@@ -531,10 +597,15 @@ impl bridged_device_basic_information::ClusterHandler for BridgedHandler {
 ///
 /// This chains the root endpoint system handlers with the aggregator descriptor
 /// and all pre-allocated camera endpoint handlers.
+#[allow(clippy::too_many_arguments)]
 fn dm_handler<'a>(
     mut rand: impl RngCore + Copy,
     av_handlers: &'a [AvStreamHandler],
     webrtc_handlers: &'a [WebRtcHandler],
+    webrtc_requestor_handlers: &'a [WebRtcRequestorHandler],
+    zone_mgmt_handlers: &'a [ZoneManagementHandler],
+    push_av_handlers: &'a [PushAvHandler],
+    chime_handlers: &'a [ChimeHandler],
     occupancy_handlers: &'a [OccupancyHandler],
     camera_states: &'a [Arc<RwLock<CameraEndpointState>>],
 ) -> impl AsyncMetadata + AsyncHandler + 'a {
@@ -555,7 +626,7 @@ fn dm_handler<'a>(
     // For Phase 1, we'll use a helper that chains all 16 endpoints.
     // Common cluster handlers shared by every camera endpoint variant.
     macro_rules! chain_camera_base {
-        ($chain:expr, $rand:expr, $av:expr, $webrtc:expr, $states:expr, $ep:expr, $idx:expr) => {
+        ($chain:expr, $rand:expr, $av:expr, $webrtc:expr, $webrtc_req:expr, $zone:expr, $push_av:expr, $chime:expr, $states:expr, $ep:expr, $idx:expr) => {
             $chain
                 .chain(
                     EpClMatcher::new(Some($ep), Some(desc::DescHandler::CLUSTER.id)),
@@ -583,13 +654,42 @@ fn dm_handler<'a>(
                     EpClMatcher::new(Some($ep), Some(WEBRTC_CLUSTER.id)),
                     Async(&$webrtc[$idx]),
                 )
+                .chain(
+                    EpClMatcher::new(Some($ep), Some(WEBRTC_REQUESTOR_CLUSTER.id)),
+                    Async(&$webrtc_req[$idx]),
+                )
+                .chain(
+                    EpClMatcher::new(Some($ep), Some(ZONE_MGMT_CLUSTER.id)),
+                    Async(&$zone[$idx]),
+                )
+                .chain(
+                    EpClMatcher::new(Some($ep), Some(PUSH_AV_CLUSTER.id)),
+                    Async(&$push_av[$idx]),
+                )
+                .chain(
+                    EpClMatcher::new(Some($ep), Some(CHIME_CLUSTER.id)),
+                    Async(&$chime[$idx]),
+                )
         };
     }
 
     // Endpoints 2..=8: camera + OccupancySensing (7 slots).
     macro_rules! chain_camera_ep_with_occupancy {
-        ($chain:expr, $rand:expr, $av:expr, $webrtc:expr, $occ:expr, $states:expr, $ep:expr, $idx:expr) => {
-            chain_camera_base!($chain, $rand, $av, $webrtc, $states, $ep, $idx).chain(
+        ($chain:expr, $rand:expr, $av:expr, $webrtc:expr, $webrtc_req:expr, $zone:expr, $push_av:expr, $chime:expr, $occ:expr, $states:expr, $ep:expr, $idx:expr) => {
+            chain_camera_base!(
+                $chain,
+                $rand,
+                $av,
+                $webrtc,
+                $webrtc_req,
+                $zone,
+                $push_av,
+                $chime,
+                $states,
+                $ep,
+                $idx
+            )
+            .chain(
                 EpClMatcher::new(Some($ep), Some(OCCUPANCY_CLUSTER.id)),
                 Async(&$occ[$idx]),
             )
@@ -602,6 +702,10 @@ fn dm_handler<'a>(
         rand,
         av_handlers,
         webrtc_handlers,
+        webrtc_requestor_handlers,
+        zone_mgmt_handlers,
+        push_av_handlers,
+        chime_handlers,
         occupancy_handlers,
         camera_states,
         2,
@@ -612,6 +716,10 @@ fn dm_handler<'a>(
         rand,
         av_handlers,
         webrtc_handlers,
+        webrtc_requestor_handlers,
+        zone_mgmt_handlers,
+        push_av_handlers,
+        chime_handlers,
         occupancy_handlers,
         camera_states,
         3,
@@ -622,6 +730,10 @@ fn dm_handler<'a>(
         rand,
         av_handlers,
         webrtc_handlers,
+        webrtc_requestor_handlers,
+        zone_mgmt_handlers,
+        push_av_handlers,
+        chime_handlers,
         occupancy_handlers,
         camera_states,
         4,
@@ -632,6 +744,10 @@ fn dm_handler<'a>(
         rand,
         av_handlers,
         webrtc_handlers,
+        webrtc_requestor_handlers,
+        zone_mgmt_handlers,
+        push_av_handlers,
+        chime_handlers,
         occupancy_handlers,
         camera_states,
         5,
@@ -642,6 +758,10 @@ fn dm_handler<'a>(
         rand,
         av_handlers,
         webrtc_handlers,
+        webrtc_requestor_handlers,
+        zone_mgmt_handlers,
+        push_av_handlers,
+        chime_handlers,
         occupancy_handlers,
         camera_states,
         6,
@@ -652,6 +772,10 @@ fn dm_handler<'a>(
         rand,
         av_handlers,
         webrtc_handlers,
+        webrtc_requestor_handlers,
+        zone_mgmt_handlers,
+        push_av_handlers,
+        chime_handlers,
         occupancy_handlers,
         camera_states,
         7,
@@ -662,6 +786,10 @@ fn dm_handler<'a>(
         rand,
         av_handlers,
         webrtc_handlers,
+        webrtc_requestor_handlers,
+        zone_mgmt_handlers,
+        push_av_handlers,
+        chime_handlers,
         occupancy_handlers,
         camera_states,
         8,
@@ -673,6 +801,10 @@ fn dm_handler<'a>(
         rand,
         av_handlers,
         webrtc_handlers,
+        webrtc_requestor_handlers,
+        zone_mgmt_handlers,
+        push_av_handlers,
+        chime_handlers,
         camera_states,
         9,
         7
