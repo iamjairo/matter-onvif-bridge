@@ -450,12 +450,13 @@ SetupQRCode: [MT:-24J0AFN00KA064IJ3P0...]
 PairingCode:  3497-0112-332
 ```
 
-Commissioning has been validated with Google Home and Apple Home. Other Matter 1.5-capable controllers may work, but interoperability has not been validated:
+Commissioning has been validated with Google Home and Apple Home. Amazon Alexa and other Matter 1.5-capable controllers that support the camera device type should also work:
 
 | Controller | Steps |
 |------------|-------|
 | **Google Home** | Add device → Matter → Enter setup code or scan QR |
 | **Apple Home** | Open Home app → Add accessory → More options → scan QR |
+| **Amazon Alexa** | Alexa app → Devices → Add Device → Matter → scan QR or enter code |
 | **chip-tool** | `chip-tool pairing onnetwork 2 20202021` |
 | **CHIP Device Controller** | Use `pairing code-thread` or `pairing onnetwork` |
 

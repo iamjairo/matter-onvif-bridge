@@ -16,6 +16,7 @@ Bridge ONVIF / RTSP cameras into Matter in a way that is useful for my homelab, 
 
 - Google Home
 - Apple Home
+- Amazon Alexa
 
 Primary priorities:
 
@@ -58,6 +59,11 @@ Primary priorities:
 - [ ] Validate live view in Apple Home
 - [ ] Validate snapshot behavior in Apple Home if surfaced
 
+- [ ] Validate commissioning in Amazon Alexa
+- [ ] Validate live view in Amazon Alexa
+- [ ] Validate motion / occupancy behavior in Amazon Alexa
+- [ ] Validate snapshot behavior in Amazon Alexa if surfaced
+
 ### 2. Document real-world support
 - [ ] Add a tested-controller matrix to README
 - [ ] Mark what is:
@@ -66,6 +72,7 @@ Primary priorities:
   - [ ] unverified
 - [ ] Document any Google Home quirks
 - [ ] Document any Apple Home quirks
+- [ ] Document any Amazon Alexa quirks
 
 ### 3. Snapshot hardening
 - [ ] Test `CaptureSnapshot` end-to-end with real cameras
