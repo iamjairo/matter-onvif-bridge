@@ -27,7 +27,9 @@ pub(crate) fn parse_stream_usage(v: u8) -> types::StreamUsage {
 }
 
 /// Parse a TLV element as a nullable u16 (returns `None` for null/empty).
-pub(crate) fn parse_nullable_u16(elem: rs_matter::tlv::TLVElement<'_>) -> Result<Option<u16>, Error> {
+pub(crate) fn parse_nullable_u16(
+    elem: rs_matter::tlv::TLVElement<'_>,
+) -> Result<Option<u16>, Error> {
     if elem.is_empty() || elem.null().is_ok() {
         return Ok(None);
     }

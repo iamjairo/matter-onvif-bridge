@@ -48,8 +48,7 @@ pub async fn run_stream_manager(
             Ok(()) => {
                 info!(
                     camera_id = camera.id,
-                    stream_name,
-                    "Registered RTSP stream in media server (startup snapshot)"
+                    stream_name, "Registered RTSP stream in media server (startup snapshot)"
                 );
             }
             Err(e) => {
@@ -109,7 +108,10 @@ pub async fn run_stream_manager(
 
                 match api.remove_stream(&stream_name).await {
                     Ok(()) => {
-                        info!(camera_id = id, stream_name, "Removed stream from media server");
+                        info!(
+                            camera_id = id,
+                            stream_name, "Removed stream from media server"
+                        );
                     }
                     Err(e) => {
                         error!(
@@ -187,7 +189,11 @@ mod tests {
     #[test]
     fn test_inject_credentials() {
         assert_eq!(
-            inject_credentials("rtsp://192.168.1.1:554/stream", TEST_USERNAME, TEST_PASSWORD),
+            inject_credentials(
+                "rtsp://192.168.1.1:554/stream",
+                TEST_USERNAME,
+                TEST_PASSWORD
+            ),
             "rtsp://admin:pass@192.168.1.1:554/stream"
         );
         assert_eq!(

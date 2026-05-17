@@ -91,10 +91,7 @@ impl CameraRegistry {
 
     /// Get all cameras.
     pub fn get_all(&self) -> Vec<CameraDevice> {
-        let cameras = self
-            .cameras
-            .read()
-            .unwrap_or_else(|e| e.into_inner());
+        let cameras = self.cameras.read().unwrap_or_else(|e| e.into_inner());
         cameras.values().cloned().collect()
     }
 

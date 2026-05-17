@@ -193,11 +193,8 @@ impl Handler for WebRtcHandler {
                         }
                     }
                 } else {
-                    tracing::warn!(
-                        session_id,
-                        "ProvideOffer — no SDP exchanger configured"
-                    );
-                    return Err(ErrorCode::InvalidInState.into());
+                    tracing::warn!(session_id, "ProvideOffer — no SDP exchanger configured");
+                    return Err(ErrorCode::InvalidState.into());
                 };
 
                 state.current_sessions.push(crate::types::WebRtcSession {
