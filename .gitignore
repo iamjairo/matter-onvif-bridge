@@ -5,8 +5,8 @@
 .env
 .matter-storage/
 
-# go2rtc
-go2rtc.yaml
+# go2rtc (ignore root-level config; docker/go2rtc/go2rtc.yaml is tracked)
+/go2rtc.yaml
 bin/
 
 # OS

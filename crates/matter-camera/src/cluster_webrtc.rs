@@ -171,7 +171,7 @@ impl Handler for WebRtcHandler {
                 state.next_session_id += 1;
 
                 // Exchange SDP via the configured media backend if available,
-                // otherwise return a conservative stub answer.
+                // otherwise return a Matter error.
                 let sdp_answer = if let Some(ref exchange) = self.sdp_exchange {
                     match exchange(sdp_offer) {
                         Ok((answer, _candidates)) => {
@@ -183,20 +183,20 @@ impl Handler for WebRtcHandler {
                             answer
                         }
                         Err(e) => {
-                            debug!(
+                            tracing::warn!(
                                 session_id,
                                 err = %e,
-                                "ProvideOffer — media-backend SDP exchange failed, returning stub"
+                                "ProvideOffer — media-backend SDP exchange failed"
                             );
-                            "v=0\r\n".to_string()
+                            return Err(ErrorCode::Failure.into());
                         }
                     }
                 } else {
-                    debug!(
+                    tracing::warn!(
                         session_id,
-                        "ProvideOffer — no SDP exchanger, returning stub"
+                        "ProvideOffer — no SDP exchanger configured"
                     );
-                    "v=0\r\n".to_string()
+                    return Err(ErrorCode::InvalidInState.into());
                 };
 
                 state.current_sessions.push(crate::types::WebRtcSession {

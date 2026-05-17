@@ -43,8 +43,11 @@ impl CameraRegistry {
     }
 
     /// Add or update a camera in the registry.
-    pub fn add_camera(&self, camera: CameraDevice) {
-        let mut cameras = self.cameras.write().unwrap();
+    pub fn add_camera(&self, camera: CameraDevice) -> Result<(), String> {
+        let mut cameras = self
+            .cameras
+            .write()
+            .map_err(|e| format!("registry lock poisoned: {e}"))?;
         match cameras.entry(camera.id.clone()) {
             Entry::Occupied(mut entry) => {
                 info!(camera_id = entry.key(), "Camera updated in registry");
@@ -62,35 +65,42 @@ impl CameraRegistry {
                 let _ = self.tx.send(RegistryEvent::Added(camera));
             }
         }
+        Ok(())
     }
 
     /// Remove a camera from the registry by ID.
-    pub fn remove_camera(&self, id: &str) {
-        let mut cameras = self.cameras.write().unwrap();
+    pub fn remove_camera(&self, id: &str) -> Result<(), String> {
+        let mut cameras = self
+            .cameras
+            .write()
+            .map_err(|e| format!("registry lock poisoned: {e}"))?;
         if cameras.remove(id).is_some() {
             info!(camera_id = id, "Camera removed from registry");
             let _ = self.tx.send(RegistryEvent::Removed(id.to_string()));
         } else {
             debug!(camera_id = id, "Attempted to remove unknown camera");
         }
+        Ok(())
     }
 
     /// Get a camera by ID.
     pub fn get(&self, id: &str) -> Option<CameraDevice> {
-        let cameras = self.cameras.read().unwrap();
+        let cameras = self.cameras.read().ok()?;
         cameras.get(id).cloned()
     }
 
     /// Get all cameras.
     pub fn get_all(&self) -> Vec<CameraDevice> {
-        let cameras = self.cameras.read().unwrap();
+        let cameras = self
+            .cameras
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
         cameras.values().cloned().collect()
     }
 
     /// Get the number of cameras in the registry.
     pub fn len(&self) -> usize {
-        let cameras = self.cameras.read().unwrap();
-        cameras.len()
+        self.cameras.read().map(|c| c.len()).unwrap_or(0)
     }
 
     /// Check if the registry is empty.

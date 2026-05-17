@@ -180,7 +180,9 @@ pub fn start_onvif_bridge(
                         manual_rtsp_cameras.len()
                     );
                     for camera in &manual_rtsp_cameras {
-                        registry_clone.add_camera(manual_rtsp_camera_device(camera));
+                        if let Err(e) = registry_clone.add_camera(manual_rtsp_camera_device(camera)) {
+                            log::error!("Failed to add manual RTSP camera: {e}");
+                        }
                     }
                 }
 
@@ -189,10 +191,14 @@ pub fn start_onvif_bridge(
                         Some(event) = discovery_rx.recv() => {
                             match event {
                                 DiscoveryEvent::CameraFound(camera) => {
-                                    registry_clone.add_camera(*camera);
+                                    if let Err(e) = registry_clone.add_camera(*camera) {
+                                        log::error!("Failed to add discovered camera: {e}");
+                                    }
                                 }
                                 DiscoveryEvent::CameraLost(id) => {
-                                    registry_clone.remove_camera(&id);
+                                    if let Err(e) = registry_clone.remove_camera(&id) {
+                                        log::error!("Failed to remove camera {id}: {e}");
+                                    }
                                 }
                                 DiscoveryEvent::CameraUnreachable(_) | DiscoveryEvent::Error(_) => {}
                             }
