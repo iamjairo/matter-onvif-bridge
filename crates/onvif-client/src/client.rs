@@ -146,7 +146,7 @@ pub async fn connect_camera(
                 name: p.name.clone(),
                 video_encoder,
                 audio_encoder,
-                ptz_config_token: None, // TODO: extract from profile PTZ config
+                ptz_config_token: None,
             }
         })
         .collect();

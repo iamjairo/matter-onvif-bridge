@@ -53,8 +53,6 @@ updates:
       include: "scope"
 
   # ── GitHub Actions ────────────────────────────────────────────────────────
-  # No workflow files exist yet, but Dependabot is pre-configured so that
-  # any actions added in future (CI, release) are automatically tracked.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

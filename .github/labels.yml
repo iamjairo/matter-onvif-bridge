@@ -80,9 +80,9 @@
   color: "0db7ed"
   description: "Dockerfile, docker-compose, container deployment"
 
-- name: "area: raspberry-pi"
+- name: "area: deployment"
   color: "c91c3e"
-  description: "Raspberry Pi deployment, cross-compilation, setup-pi.sh"
+  description: "Deployment, systemd, Docker, hosting"
 
 - name: "area: config"
   color: "f9d0c4"

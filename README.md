@@ -348,7 +348,9 @@ matter-onvif-bridge/
 │   └── media/src/                # media-server integration
 │       ├── media_api.rs          #   AnyMediaApi — unified go2rtc/MediaMTX facade
 │       ├── go2rtc_api.rs         #   go2rtc REST API client
+│       ├── go2rtc_manager.rs     #   go2rtc process lifecycle
 │       ├── mediamtx_api.rs       #   MediaMTX REST + WHEP client
+│       ├── mediamtx_manager.rs   #   MediaMTX process lifecycle
 │       ├── stream_manager.rs     #   syncs CameraRegistry → media server
 │       └── webrtc_session.rs     #   SDP offer/answer + ICE negotiation
 ├── docker/
@@ -392,13 +394,13 @@ matter-onvif-bridge/
 
 1. **Issues** — bug reports and feature requests welcome
 2. **PRs** — fork, branch, change, PR
-3. **Style** — `cargo fmt && cargo clippy --workspace -- -D warnings` before submitting
+3. **Style** — `cargo fmt && cargo clippy --workspace --all-targets -- -D warnings` before submitting
 
 ```bash
-cargo check --workspace          # type-check
-cargo test --workspace           # run tests
-cargo clippy --workspace -- -D warnings  # lint
-cargo fmt --all                  # format
+cargo check --workspace --all-targets   # type-check
+cargo test --workspace                  # run tests
+cargo clippy --workspace --all-targets -- -D warnings  # lint
+cargo fmt --all                         # format
 ```
 
 Dependabot is configured for Cargo dependencies, Docker base images, and GitHub Actions versions.
