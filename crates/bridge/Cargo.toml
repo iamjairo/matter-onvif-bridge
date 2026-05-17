@@ -13,7 +13,7 @@ matter-camera.workspace = true
 onvif-client.workspace = true
 media.workspace = true
 
-rs-matter = { git = "https://github.com/project-chip/rs-matter", package = "rs-matter", features = ["async-io", "zeroconf"] }
+rs-matter = { git = "https://github.com/project-chip/rs-matter", rev = "6574649f173997120aee9af311ea8c82bd119134", package = "rs-matter", features = ["async-io", "zeroconf"] }
 tokio.workspace = true
 tracing.workspace = true
 dotenvy.workspace = true
