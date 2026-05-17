@@ -1,0 +1,9 @@
+target/
+.git/
+.env
+.matter-storage/
+docker/
+scripts/
+*.md
+.claude/
+.github/

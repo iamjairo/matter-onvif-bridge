@@ -76,8 +76,6 @@ pub const WITH_OCCUPANCY_CAMERAS: usize = 7;
 /// Endpoint IDs: 0 = root, 1 = aggregator, 2..8 = camera+occupancy slots,
 /// 9 = camera-only slot.
 const AGGREGATOR_EP: u16 = 1;
-#[allow(dead_code)]
-const CAMERA_EP_START: u16 = 2;
 
 fn main() -> Result<(), Error> {
     dotenvy::dotenv().ok();

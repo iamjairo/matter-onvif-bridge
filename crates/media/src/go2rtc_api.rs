@@ -201,17 +201,6 @@ impl Go2RtcApi {
     }
 }
 
-/// Extract ICE candidates from an SDP string.
-///
-/// go2rtc typically embeds ICE candidates directly in the SDP answer,
-/// so trickle ICE via WebSocket is usually not needed.
-pub fn extract_ice_candidates(sdp: &str) -> Vec<String> {
-    sdp.lines()
-        .filter(|line| line.starts_with("a=candidate:"))
-        .map(|line| line.trim().to_string())
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use std::io;

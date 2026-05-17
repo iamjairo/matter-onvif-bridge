@@ -19,6 +19,7 @@ use media::go2rtc_manager::{Go2RtcManager, Go2RtcMode};
 use media::media_api::AnyMediaApi;
 use media::mediamtx_api::MediaMtxApi;
 use media::mediamtx_manager::{MediaMtxManager, MediaMtxMode};
+use media::stream_manager::sanitize_stream_name;
 use onvif_client::discovery::{DiscoveryConfig, DiscoveryEvent, DiscoveryMode};
 use onvif_client::motion::{MotionPumpConfig, spawn_motion_pump};
 use onvif_client::registry::{CameraRegistry, RegistryEvent};
@@ -180,7 +181,9 @@ pub fn start_onvif_bridge(
                         manual_rtsp_cameras.len()
                     );
                     for camera in &manual_rtsp_cameras {
-                        registry_clone.add_camera(manual_rtsp_camera_device(camera));
+                        if let Err(e) = registry_clone.add_camera(manual_rtsp_camera_device(camera)) {
+                            log::error!("Failed to add manual RTSP camera: {e}");
+                        }
                     }
                 }
 
@@ -189,10 +192,14 @@ pub fn start_onvif_bridge(
                         Some(event) = discovery_rx.recv() => {
                             match event {
                                 DiscoveryEvent::CameraFound(camera) => {
-                                    registry_clone.add_camera(*camera);
+                                    if let Err(e) = registry_clone.add_camera(*camera) {
+                                        log::error!("Failed to add discovered camera: {e}");
+                                    }
                                 }
                                 DiscoveryEvent::CameraLost(id) => {
-                                    registry_clone.remove_camera(&id);
+                                    if let Err(e) = registry_clone.remove_camera(&id) {
+                                        log::error!("Failed to remove camera {id}: {e}");
+                                    }
                                 }
                                 DiscoveryEvent::CameraUnreachable(_) | DiscoveryEvent::Error(_) => {}
                             }
@@ -414,19 +421,6 @@ fn apply_fallback_video_state(state: &mut CameraEndpointState) {
     state.max_encoded_pixel_rate =
         FALLBACK_VIDEO_WIDTH as u32 * FALLBACK_VIDEO_HEIGHT as u32 * FALLBACK_VIDEO_FPS as u32;
     state.max_concurrent_video_encoders = 1;
-}
-
-/// Sanitize camera ID into a go2rtc-compatible stream name.
-fn sanitize_stream_name(id: &str) -> String {
-    id.chars()
-        .map(|c| {
-            if c.is_alphanumeric() || c == '-' || c == '_' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect()
 }
 
 fn manual_rtsp_camera_device(camera: &ManualRtspCameraConfig) -> CameraDevice {

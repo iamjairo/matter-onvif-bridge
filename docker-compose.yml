@@ -37,7 +37,7 @@ services:
 
   # ── go2rtc ────────────────────────────────────────────────────────────────────
   go2rtc:
-    image: alexxit/go2rtc:latest
+    image: alexxit/go2rtc:1.9.7
     container_name: matter-onvif-go2rtc
     restart: unless-stopped
     # No profiles key → this service starts by default AND with the linux-bridge profile.
@@ -52,7 +52,6 @@ services:
       - "${GO2RTC_WEBRTC_PORT:-8555}:8555/udp"
     # go2rtc only needs to reach cameras via unicast TCP (RTSP).
     # Docker's default bridge NAT handles that without host networking.
-    network_mode: bridge
 
   # ── MediaMTX ──────────────────────────────────────────────────────────────────
   mediamtx:
@@ -60,6 +59,8 @@ services:
     container_name: matter-onvif-mediamtx
     restart: unless-stopped
     profiles: ["mediamtx"]
+    volumes:
+      - ./docker/mediamtx/mediamtx.yml:/mediamtx.yml:ro
     environment:
       MTX_LOGLEVEL: info
     ports:
@@ -69,7 +70,6 @@ services:
       - "${MEDIAMTX_WHEP_PORT:-8889}:8889"
       # RTSP (optional — mediamtx can accept RTSP re-publish from cameras)
       - "8554:8554"
-    network_mode: bridge
 
   # ── Bridge (Linux host-networking only) ───────────────────────────────────────
   # This service requires Linux with network_mode: host so that:

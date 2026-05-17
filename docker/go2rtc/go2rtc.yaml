@@ -1,0 +1,8 @@
+# go2rtc configuration for matter-onvif-bridge
+# Streams are registered dynamically by the bridge via the API.
+
+api:
+  listen: ":1984"
+
+webrtc:
+  listen: ":8555"

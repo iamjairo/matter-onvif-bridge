@@ -16,6 +16,7 @@ use strum::FromRepr;
 use tracing::debug;
 
 use crate::types::CameraEndpointState;
+use crate::{parse_nullable_u16, parse_stream_usage};
 
 pub const CLUSTER_ID: u32 = 0x0551;
 const CLUSTER_REVISION: u16 = 1;
@@ -764,15 +765,6 @@ fn write_stream_usage_priorities(mut writer: impl Reply) -> Result<(), Error> {
     writer.complete()
 }
 
-fn parse_stream_usage(v: u8) -> crate::types::StreamUsage {
-    match v {
-        0 => crate::types::StreamUsage::Internal,
-        1 => crate::types::StreamUsage::Recording,
-        2 => crate::types::StreamUsage::Analysis,
-        _ => crate::types::StreamUsage::LiveView,
-    }
-}
-
 fn parse_video_codec(v: u8) -> crate::types::VideoCodec {
     match v {
         0 => crate::types::VideoCodec::H264,
@@ -811,22 +803,13 @@ fn parse_resolution_struct(
     })
 }
 
-fn parse_nullable_u16(elem: rs_matter::tlv::TLVElement<'_>) -> Result<Option<u16>, Error> {
-    if elem.is_empty() || elem.null().is_ok() {
-        return Ok(None);
-    }
-
-    elem.u16()
-        .map(Some)
-        .map_err(|_| ErrorCode::InvalidCommand.into())
-}
-
 #[cfg(test)]
 mod tests {
     use rs_matter::tlv::{TLVElement, TLVTag, TLVWrite};
     use rs_matter::utils::storage::WriteBuf;
 
-    use super::{parse_nullable_u16, parse_resolution_struct};
+    use super::parse_resolution_struct;
+    use crate::parse_nullable_u16;
 
     #[test]
     fn parse_resolution_struct_reads_width_and_height() {

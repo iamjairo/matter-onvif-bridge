@@ -50,13 +50,13 @@ async fn main() {
 
     // Add discovered cameras not already in static list
     for d in &discovered {
-        if let Some(xaddr) = d.xaddrs.first() {
-            if let Ok(url) = url::Url::parse(xaddr) {
-                let host = url.host_str().unwrap_or("").to_string();
-                let port = url.port().unwrap_or(80);
-                if seen.insert(host.clone()) {
-                    cameras.push((host, port));
-                }
+        if let Some(xaddr) = d.xaddrs.first()
+            && let Ok(url) = url::Url::parse(xaddr)
+        {
+            let host = url.host_str().unwrap_or("").to_string();
+            let port = url.port().unwrap_or(80);
+            if seen.insert(host.clone()) {
+                cameras.push((host, port));
             }
         }
     }
