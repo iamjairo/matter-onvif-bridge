@@ -17,7 +17,7 @@ repository = "https://github.com/iamjairo/matter-onvif-bridge"
 rs-matter = { git = "https://github.com/project-chip/rs-matter", rev = "6574649f173997120aee9af311ea8c82bd119134", package = "rs-matter" }
 
 # ONVIF client
-oxvif = "0.9.4"
+oxvif = "0.9.7"
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
